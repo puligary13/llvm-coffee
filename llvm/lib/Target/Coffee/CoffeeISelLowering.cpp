@@ -16,6 +16,7 @@
 #include "CoffeePerfectShuffle.h"
 #include "CoffeeTargetMachine.h"
 #include "MCTargetDesc/CoffeePredicates.h"
+#include "CoffeeTargetObjectFile.h"
 #include "llvm/CallingConv.h"
 #include "llvm/Constants.h"
 #include "llvm/DerivedTypes.h"
@@ -49,14 +50,156 @@ CoffeeTargetLowering::CoffeeTargetLowering(CoffeeTargetMachine &TM)
     : TargetLowering(TM, new TargetLoweringObjectFileELF()) {
 
     // Set up the register classes.
+    setBooleanContents(ZeroOrOneBooleanContent);
+    setBooleanVectorContents(ZeroOrOneBooleanContent); // FIXME: Is this correct?
 
     addRegisterClass(MVT::i32, Coffee::GPRCRegisterClass);
     addRegisterClass(MVT::f32, Coffee::FPRCRegisterClass);
 
-    setOperationAction(ISD::DYNAMIC_STACKALLOC,MVT::i32 ,Expand);
 
-    setOperationAction(ISD::LOAD, MVT::i32, Legal);
-    setOperationAction(ISD::STORE,  MVT::i32, Legal);
+
+    ///////
+
+    // Load extented operations for i1 types must be promoted
+    setLoadExtAction(ISD::EXTLOAD,  MVT::i1,  Promote);
+    setLoadExtAction(ISD::ZEXTLOAD, MVT::i1,  Promote);
+    setLoadExtAction(ISD::SEXTLOAD, MVT::i1,  Promote);
+
+
+    setLoadExtAction(ISD::EXTLOAD, MVT::f32, Expand);
+    setTruncStoreAction(MVT::f64, MVT::f32, Expand);
+
+    AddPromotedToType(ISD::SETCC, MVT::i1, MVT::i32);
+
+
+
+    setOperationAction(ISD::SETCC,     MVT::i32, Expand);
+    setOperationAction(ISD::SETCC,     MVT::f32, Expand);
+    setOperationAction(ISD::SETCC,     MVT::f64, Expand);
+    setOperationAction(ISD::SELECT,    MVT::i32, Custom);
+    setOperationAction(ISD::SELECT,    MVT::f32, Custom);
+    setOperationAction(ISD::SELECT,    MVT::f64, Custom);
+    setOperationAction(ISD::SELECT_CC, MVT::i32, Custom);
+    setOperationAction(ISD::SELECT_CC, MVT::f32, Custom);
+    setOperationAction(ISD::SELECT_CC, MVT::f64, Custom);
+
+    setOperationAction(ISD::BRCOND,    MVT::Other, Expand);
+    setOperationAction(ISD::BR_CC,     MVT::i32,   Custom);
+    setOperationAction(ISD::BR_CC,     MVT::f32,   Custom);
+    setOperationAction(ISD::BR_CC,     MVT::f64,   Custom);
+    setOperationAction(ISD::BR_CC,     MVT::Other, Custom);
+
+    setOperationAction(ISD::BR_JT,     MVT::Other, Custom);
+
+
+
+    // Mips Custom Operations
+    setOperationAction(ISD::GlobalAddress,      MVT::i32,   Custom);
+    setOperationAction(ISD::BlockAddress,       MVT::i32,   Custom);
+    setOperationAction(ISD::GlobalTLSAddress,   MVT::i32,   Custom);
+    setOperationAction(ISD::JumpTable,          MVT::i32,   Custom);
+    setOperationAction(ISD::ConstantPool,       MVT::i32,   Custom);
+    setOperationAction(ISD::SELECT,             MVT::f32,   Custom);
+    setOperationAction(ISD::SELECT,             MVT::f64,   Custom);
+    setOperationAction(ISD::SELECT,             MVT::i32,   Custom);
+
+
+
+
+    setOperationAction(ISD::DYNAMIC_STACKALLOC, MVT::i32,   Custom);
+    setOperationAction(ISD::VASTART,            MVT::Other, Custom);
+    setOperationAction(ISD::FCOPYSIGN,          MVT::f32,   Custom);
+    setOperationAction(ISD::FCOPYSIGN,          MVT::f64,   Custom);
+    setOperationAction(ISD::MEMBARRIER,         MVT::Other, Custom);
+    setOperationAction(ISD::ATOMIC_FENCE,       MVT::Other, Custom);
+
+    if (!TM.Options.NoNaNsFPMath) {
+      setOperationAction(ISD::FABS,             MVT::f32,   Custom);
+      setOperationAction(ISD::FABS,             MVT::f64,   Custom);
+    }
+
+    setOperationAction(ISD::SDIV, MVT::i32, Expand);
+    setOperationAction(ISD::SREM, MVT::i32, Expand);
+    setOperationAction(ISD::UDIV, MVT::i32, Expand);
+    setOperationAction(ISD::UREM, MVT::i32, Expand);
+    setOperationAction(ISD::SDIV, MVT::i64, Expand);
+    setOperationAction(ISD::SREM, MVT::i64, Expand);
+    setOperationAction(ISD::UDIV, MVT::i64, Expand);
+    setOperationAction(ISD::UREM, MVT::i64, Expand);
+
+    // Operations not directly supported by coffee.
+    setOperationAction(ISD::BR_JT,             MVT::Other, Expand);
+
+    setOperationAction(ISD::SELECT_CC,         MVT::Other, Expand);
+    setOperationAction(ISD::UINT_TO_FP,        MVT::i32,   Expand);
+    setOperationAction(ISD::UINT_TO_FP,        MVT::i64,   Expand);
+    setOperationAction(ISD::FP_TO_UINT,        MVT::i32,   Expand);
+    setOperationAction(ISD::FP_TO_UINT,        MVT::i64,   Expand);
+    setOperationAction(ISD::SIGN_EXTEND_INREG, MVT::i1,    Expand);
+    setOperationAction(ISD::CTPOP,             MVT::i32,   Expand);
+    setOperationAction(ISD::CTPOP,             MVT::i64,   Expand);
+    setOperationAction(ISD::CTTZ,              MVT::i32,   Expand);
+    setOperationAction(ISD::CTTZ,              MVT::i64,   Expand);
+    setOperationAction(ISD::CTTZ_ZERO_UNDEF,   MVT::i32,   Expand);
+    setOperationAction(ISD::CTTZ_ZERO_UNDEF,   MVT::i64,   Expand);
+    setOperationAction(ISD::CTLZ_ZERO_UNDEF,   MVT::i32,   Expand);
+    setOperationAction(ISD::CTLZ_ZERO_UNDEF,   MVT::i64,   Expand);
+    setOperationAction(ISD::ROTL,              MVT::i32,   Expand);
+    setOperationAction(ISD::ROTL,              MVT::i64,   Expand);
+    setOperationAction(ISD::ROTR, MVT::i32,   Expand);
+    setOperationAction(ISD::SHL_PARTS,         MVT::i32,   Expand);
+    setOperationAction(ISD::SRA_PARTS,         MVT::i32,   Expand);
+    setOperationAction(ISD::SRL_PARTS,         MVT::i32,   Expand);
+    setOperationAction(ISD::FSIN,              MVT::f32,   Expand);
+    setOperationAction(ISD::FSIN,              MVT::f64,   Expand);
+    setOperationAction(ISD::FCOS,              MVT::f32,   Expand);
+    setOperationAction(ISD::FCOS,              MVT::f64,   Expand);
+    setOperationAction(ISD::FPOWI,             MVT::f32,   Expand);
+    setOperationAction(ISD::FPOW,              MVT::f32,   Expand);
+    setOperationAction(ISD::FPOW,              MVT::f64,   Expand);
+    setOperationAction(ISD::FLOG,              MVT::f32,   Expand);
+    setOperationAction(ISD::FLOG2,             MVT::f32,   Expand);
+    setOperationAction(ISD::FLOG10,            MVT::f32,   Expand);
+    setOperationAction(ISD::FEXP,              MVT::f32,   Expand);
+    setOperationAction(ISD::FMA,               MVT::f32,   Expand);
+    setOperationAction(ISD::FMA,               MVT::f64,   Expand);
+    setOperationAction(ISD::FREM,              MVT::f32,   Expand);
+    setOperationAction(ISD::FREM,              MVT::f64,   Expand);
+
+    if (!TM.Options.NoNaNsFPMath) {
+      setOperationAction(ISD::FNEG,             MVT::f32,   Expand);
+      setOperationAction(ISD::FNEG,             MVT::f64,   Expand);
+    }
+
+    setOperationAction(ISD::EXCEPTIONADDR,     MVT::i32, Expand);
+    setOperationAction(ISD::EXCEPTIONADDR,     MVT::i64, Expand);
+    setOperationAction(ISD::EHSELECTION,       MVT::i32, Expand);
+    setOperationAction(ISD::EHSELECTION,       MVT::i64, Expand);
+
+    setOperationAction(ISD::VAARG,             MVT::Other, Expand);
+    setOperationAction(ISD::VACOPY,            MVT::Other, Expand);
+    setOperationAction(ISD::VAEND,             MVT::Other, Expand);
+
+    // Use the default for now
+    setOperationAction(ISD::STACKSAVE,         MVT::Other, Expand);
+    setOperationAction(ISD::STACKRESTORE,      MVT::Other, Expand);
+
+    setOperationAction(ISD::ATOMIC_LOAD,       MVT::i32,    Expand);
+    setOperationAction(ISD::ATOMIC_LOAD,       MVT::i64,    Expand);
+    setOperationAction(ISD::ATOMIC_STORE,      MVT::i32,    Expand);
+    setOperationAction(ISD::ATOMIC_STORE,      MVT::i64,    Expand);
+
+    //////
+
+
+    setTargetDAGCombine(ISD::ADDE);
+    setTargetDAGCombine(ISD::SUBE);
+    setTargetDAGCombine(ISD::SDIVREM);
+    setTargetDAGCombine(ISD::UDIVREM);
+    setTargetDAGCombine(ISD::SELECT);
+    setTargetDAGCombine(ISD::AND);
+    setTargetDAGCombine(ISD::OR);
+
 
     setMinFunctionAlignment(2);
 
@@ -120,6 +263,7 @@ static bool CC_Coffee32(unsigned ValNo, MVT ValVT,
       || State.getFirstUnallocated(F32Regs, FloatRegsSize) != ValNo;
   unsigned OrigAlign = ArgFlags.getOrigAlign();
   bool isI64 = (ValVT == MVT::i32 && OrigAlign == 8);*/
+
 unsigned OrigAlign = ArgFlags.getOrigAlign();
   bool AllocateFloatsInIntReg = false;
   bool isI64 = false;
@@ -295,15 +439,22 @@ CoffeeTargetLowering::LowerFormalArguments(SDValue Chain,
       }
     }
 
-    // The mips ABIs for returning structs by value requires that we copy
+    // The coffee ABIs for returning structs by value requires that we copy
     // the sret argument into $v0 for the return. Save the argument into
     // a virtual register so that we can access it from the return points.
     if (DAG.getMachineFunction().getFunction()->hasStructRetAttr()) {
-        llvm_unreachable("coffee: we don't support return struct for now");
+        unsigned Reg = CoffeeFI->getSRetReturnReg();
+        if (!Reg) {
+          Reg = MF.getRegInfo().createVirtualRegister(getRegClassFor(MVT::i32));
+          CoffeeFI->setSRetReturnReg(Reg);
+        }
+        //guoqing: when a function has return value hasStructRetAttr() is true
+        SDValue Copy = DAG.getCopyToReg(DAG.getEntryNode(), dl, Reg, InVals[0]);
+        Chain = DAG.getNode(ISD::TokenFactor, dl, MVT::Other, Copy, Chain);
     }
 
     if (isVarArg)
-        llvm_unreachable("coffee: var arg is not ok");
+        llvm_unreachable("coffee: is var arg");
 
     CoffeeFI->setLastInArgFI(LastFI);
 
@@ -317,6 +468,31 @@ CoffeeTargetLowering::LowerFormalArguments(SDValue Chain,
 
     return Chain;
   }
+
+
+SDValue  CoffeeTargetLowering::PerformDAGCombine(SDNode *N, DAGCombinerInfo &DCI)
+  const {
+  SelectionDAG &DAG = DCI.DAG;
+  unsigned opc = N->getOpcode();
+
+  switch (opc) {
+  default: break;
+  case ISD::ADDE:
+  case ISD::SUBE:
+  case ISD::SDIVREM:
+  case ISD::UDIVREM:
+  case ISD::SELECT:
+  case ISD::AND:
+
+  case ISD::OR:
+
+      break;
+  }
+
+  return SDValue();
+}
+
+
 
 
 
@@ -349,7 +525,6 @@ CoffeeTargetLowering::LowerReturn(SDValue Chain,
     // Copy the result values into the output registers.
     for (unsigned i = 0; i != RVLocs.size(); ++i) {
 
-      llvm_unreachable("coffee: copy result to output register! Not fully supported");
       CCValAssign &VA = RVLocs[i];
       assert(VA.isRegLoc() && "Can only return in registers!");
 
@@ -361,19 +536,41 @@ CoffeeTargetLowering::LowerReturn(SDValue Chain,
     }
 
 
+    if (DAG.getMachineFunction().getFunction()->hasStructRetAttr()) {
+      MachineFunction &MF      = DAG.getMachineFunction();
+      CoffeeFunctionInfo *CoffeeFI = MF.getInfo<CoffeeFunctionInfo>();
+      unsigned Reg = CoffeeFI->getSRetReturnReg();
+
+      if (!Reg)
+        llvm_unreachable("sret virtual register not created in the entry block");
+
+      SDValue Val = DAG.getCopyFromReg(Chain, dl, Reg, getPointerTy());
+
+      Chain = DAG.getCopyToReg(Chain, dl, Coffee::V0, Val, Flag);
+
+
+      Flag = Chain.getValue(1);
+    }
+
     SDValue result;
-    if (Flag.getNode())
-      result = DAG.getNode(COFFEEISD::RET_FLAG, dl, MVT::Other, Chain, Flag);
-    else // Return Void
-      result = DAG.getNode(COFFEEISD::RET_FLAG, dl, MVT::Other, Chain);
+    if (Flag.getNode()) {
+        result = DAG.getNode(COFFEEISD::RET, dl, MVT::Other, Chain, DAG.getRegister(Coffee::LR, MVT::i32), Flag);
+
+    } else // Return Void
+      result = DAG.getNode(COFFEEISD::RET, dl, MVT::Other, Chain, DAG.getRegister(Coffee::LR, MVT::i32));
     return result;
   }
 
 const char * CoffeeTargetLowering::getTargetNodeName(unsigned Opcode) const {
     switch (Opcode) {
     default: return 0;
-    case COFFEEISD::RET_FLAG:       return "COFFEEISD::RET_FLAG";
+    case COFFEEISD::RET:       return "COFFEEISD::RET";
     case COFFEEISD::CALL:       return "COFFEEISD::CALL";
+    case COFFEEISD::BRCOND:     return   "COFFEEISD::BRCOND";
+    case COFFEEISD::CMP:        return "COFFEEISD::CMP";
+    case COFFEEISD::Hi:         return "COFFEEISD::Hi";
+    case COFFEEISD::Lo:         return "COFFEEISD::Lo";
+
     }
 }
 
@@ -630,33 +827,16 @@ CoffeeTargetLowering::LowerCallResult(SDValue Chain, SDValue InFlag,
   SmallVector<CCValAssign, 16> RVLocs;
   CCState CCInfo(CallConv, isVarArg, DAG.getMachineFunction(),
                     DAG.getTarget(), RVLocs, *DAG.getContext());
-  CCInfo.AnalyzeCallResult(Ins,
-                           CCAssignFnForNode(CallConv, /* Return*/ true,
-                                             isVarArg));
+
+
+  CCInfo.AnalyzeCallResult(Ins, RetCC_Coffee);
 
   // Copy all of the result registers out of their specified physreg.
   for (unsigned i = 0; i != RVLocs.size(); ++i) {
-    CCValAssign VA = RVLocs[i];
-
-    SDValue Val;
-    if (VA.needsCustom()) {
-        llvm_unreachable("coffee: LowerCallResult");
-    } else {
-      Val = DAG.getCopyFromReg(Chain, dl, VA.getLocReg(), VA.getLocVT(),
-                               InFlag);
-      Chain = Val.getValue(1);
-      InFlag = Val.getValue(2);
-    }
-
-    switch (VA.getLocInfo()) {
-    default: llvm_unreachable("Unknown loc info!");
-    case CCValAssign::Full: break;
-    case CCValAssign::BCvt:
-      Val = DAG.getNode(ISD::BITCAST, dl, VA.getValVT(), Val);
-      break;
-    }
-
-    InVals.push_back(Val);
+    Chain = DAG.getCopyFromReg(Chain, dl, RVLocs[i].getLocReg(),
+                               RVLocs[i].getValVT(), InFlag).getValue(1);
+    InFlag = Chain.getValue(2);
+    InVals.push_back(Chain.getValue(0));
   }
 
   return Chain;
@@ -681,10 +861,97 @@ SDValue CoffeeTargetLowering::LowerFRAMEADDR(SDValue Op, SelectionDAG &DAG) cons
 }
 
 SDValue CoffeeTargetLowering::LowerOperation(SDValue Op, SelectionDAG &DAG) const {
+
+    //need to recheck this part when we start to implement the float point support
   switch (Op.getOpcode()) {
   default: llvm_unreachable("Don't know how to custom lower this!");
-  case ISD::FRAMEADDR:     return LowerFRAMEADDR(Op, DAG);
-
-
+  case ISD::FRAMEADDR:
+  case ISD::BRCOND:
+  case ISD::ConstantPool:
+  case ISD::DYNAMIC_STACKALLOC:
+  case ISD::BlockAddress:
+  case ISD::GlobalTLSAddress:
+  case ISD::JumpTable:
+  case ISD::SELECT:
+  case ISD::SETCC:
+  case ISD::VASTART:
+  case ISD::FCOPYSIGN:
+  case ISD::FABS:
+  case ISD::MEMBARRIER:
+  case ISD::ATOMIC_FENCE:
+      return Op;
+  case ISD::GlobalAddress: return LowerGlobalAddress(Op, DAG);
+  case ISD::BR_CC: return LowerBR_CC(Op, DAG);
   }
 }
+
+SDValue CoffeeTargetLowering::LowerGlobalAddress(SDValue Op,
+                                                 SelectionDAG &DAG) const {
+    // FIXME there isn't actually debug info here
+    DebugLoc dl = Op.getDebugLoc();
+    const GlobalValue *GV = cast<GlobalAddressSDNode>(Op)->getGlobal();
+
+
+   // SDVTList VTs = DAG.getVTList(MVT::i32);
+
+    CoffeeTargetObjectFile &TLOF = (CoffeeTargetObjectFile&)getObjFileLowering();
+
+    //
+    if (TLOF.IsGlobalInSmallSection(GV, getTargetMachine())) {
+        llvm_unreachable("coffee: gobal in small section");
+    }
+    // %hi/%lo relocation
+    SDValue GAHi = DAG.getTargetGlobalAddress(GV, dl, MVT::i32, 0,
+                                              0);
+    SDValue GALo = DAG.getTargetGlobalAddress(GV, dl, MVT::i32, 0,
+                                              0);
+    SDValue HiPart = DAG.getNode(COFFEEISD::Hi, dl, MVT::i32, GAHi);
+
+    return DAG.getNode(COFFEEISD::Lo, dl, MVT::i32, HiPart, GALo);
+
+
+}
+
+
+SDValue CoffeeTargetLowering::LowerBR_CC(SDValue Op, SelectionDAG &DAG) const {
+  SDValue Chain = Op.getOperand(0);
+  ISD::CondCode CondCode = cast<CondCodeSDNode>(Op.getOperand(1))->get();
+  SDValue LHS = Op.getOperand(2);
+  SDValue RHS = Op.getOperand(3);
+  SDValue Dest = Op.getOperand(4);
+  DebugLoc dl = Op.getDebugLoc();
+
+  if (LHS.getValueType() == MVT::i32) {
+    SDValue CC = DAG.getConstant(CondCode, MVT::i32);
+    SDValue Cmp = getCoffeeCmp(LHS, RHS, DAG, dl);
+    SDValue CCR = DAG.getRegister(Coffee::CR0, MVT::i32);
+
+    return DAG.getNode(COFFEEISD::BRCOND, dl, MVT::Other,
+                       Chain, Dest, CC, CCR, Cmp);
+  }
+
+}
+
+
+bool CoffeeTargetLowering::isLegalICmpImmediate(int64_t Imm) const {
+  // we have 16 bits for immediate
+  return Imm >= 0 && Imm <= 65535;
+}
+
+
+SDValue
+CoffeeTargetLowering::getCoffeeCmp(SDValue LHS, SDValue RHS,
+                             SelectionDAG &DAG,
+                             DebugLoc dl) const {
+  if (ConstantSDNode *RHSC = dyn_cast<ConstantSDNode>(RHS.getNode())) {
+    unsigned C = RHSC->getZExtValue();
+    if (!isLegalICmpImmediate(C))
+        llvm_unreachable("coffee: cmp imm doesn't fit");
+  }
+
+  return DAG.getNode(COFFEEISD::CMP, dl, MVT::Glue, LHS, RHS);
+}
+
+
+
+

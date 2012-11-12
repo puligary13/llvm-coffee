@@ -33,6 +33,7 @@ namespace llvm {
 
   FunctionPass *createCoffeeBranchSelectionPass();
   FunctionPass *createCoffeeISelDag(CoffeeTargetMachine &TM);
+  FunctionPass *createCoffeeDelaySlotFillerPass(CoffeeTargetMachine &TM);
   FunctionPass *createCoffeeJITCodeEmitterPass(CoffeeTargetMachine &TM,
                                             JITCodeEmitter &MCE);
   void LowerCoffeeMachineInstrToMCInst(const MachineInstr *MI, MCInst &OutMI,
@@ -45,11 +46,14 @@ namespace llvm {
     //===------------------------------------------------------------------===//
     // Coffee Specific MachineOperand flags.
     MO_NO_FLAG,
+    MO_ABS_HI,
+
+    MO_ABS_LO,
     
     /// MO_DARWIN_STUB - On a symbol operand "FOO", this indicates that the
     /// reference is actually to the "FOO$stub" symbol.  This is used for calls
     /// and jumps to external functions on Tiger and earlier.
-    MO_DARWIN_STUB = 1,
+    //MO_DARWIN_STUB = 1,
     
     /// MO_LO16, MO_HA16 - lo16(symbol) and ha16(symbol)
     MO_LO16 = 4, MO_HA16 = 8,

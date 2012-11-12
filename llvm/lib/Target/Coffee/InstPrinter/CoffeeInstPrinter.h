@@ -46,6 +46,7 @@ public:
                              raw_ostream &O, const char *Modifier);
 
 
+
   void printS5ImmOperand(const MCInst *MI, unsigned OpNo, raw_ostream &O);
   void printU5ImmOperand(const MCInst *MI, unsigned OpNo, raw_ostream &O);
   void printU6ImmOperand(const MCInst *MI, unsigned OpNo, raw_ostream &O);

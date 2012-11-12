@@ -240,14 +240,19 @@ static const char *stripRegisterPrefix(const char *RegName) {
 
 void CoffeeInstPrinter::printMemOperand(const MCInst *MI, unsigned OpNo, raw_ostream &O) {
 
-    const MCOperand &Op = MI->getOperand(OpNo);
+   /* const MCOperand &Op = MI->getOperand(OpNo);
     const MCOperand &Op1 = MI->getOperand(OpNo+1);
 
     const char *RegName = getRegisterName(Op.getReg());
 
     O << RegName;
     O <<",\t";
-    O <<(int)Op1.getImm();  // cast to int in order to show negative numbers
+    O <<(int)Op1.getImm();  // cast to int in order to show negative numbers*/
+
+    printOperand(MI, OpNo, O);
+    O <<",\t";
+    printOperand(MI, OpNo+1, O);
+
 }
 
 void CoffeeInstPrinter::printOperand(const MCInst *MI, unsigned OpNo,

@@ -32,7 +32,7 @@ CoffeeTargetMachine::CoffeeTargetMachine(const Target &T, StringRef TT,
                                    Reloc::Model RM, CodeModel::Model CM,
                                    CodeGenOpt::Level OL)
   : LLVMTargetMachine(T, TT, CPU, FS, Options, RM, CM, OL),
-    DataLayout("e-p:32:32:32-i64:64:64-f64:64:64-f128:64:64-n32"),
+    DataLayout("e-p:32:32:32-i8:8:32-i16:16:32-i64:64:64-n32"),
     InstrInfo(*this),
     FrameLowering(),
     TLInfo(*this),
@@ -59,6 +59,8 @@ public:
     }
 
     virtual bool addInstSelector();
+
+    virtual bool addPreEmitPass();
 };
 } // namespace
 
@@ -70,6 +72,11 @@ bool CoffeePassConfig::addInstSelector() {
   // Install an instruction selector.
   PM->add(createCoffeeISelDag(getCoffeeTargetMachine()));
   return false;
+}
+
+bool CoffeePassConfig::addPreEmitPass() {
+  PM->add(createCoffeeDelaySlotFillerPass(getCoffeeTargetMachine()));
+  return true;
 }
 
 //end of file

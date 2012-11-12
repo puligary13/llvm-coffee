@@ -52,64 +52,94 @@ emitSPUpdate(MachineBasicBlock &MBB, MachineBasicBlock::iterator &MBBI,
                                TII, MIFlags);
 }
 
+
+static void expandLargeImm(unsigned Reg, int64_t Imm,
+                           const CoffeeInstrInfo &TII, MachineBasicBlock& MBB,
+                           MachineBasicBlock::iterator II, DebugLoc DL) {
+ /* unsigned LUi = IsN64 ? Mips::LUi64 : Mips::LUi;
+  unsigned ADDu = IsN64 ? Mips::DADDu : Mips::ADDu;
+  unsigned ZEROReg = IsN64 ? Mips::ZERO_64 : Mips::ZERO;
+  unsigned ATReg = IsN64 ? Mips::AT_64 : Mips::AT;
+  MipsAnalyzeImmediate AnalyzeImm;
+  const MipsAnalyzeImmediate::InstSeq &Seq =
+    AnalyzeImm.Analyze(Imm, IsN64 ? 64 : 32, false  LastInstrIsADDiu );
+  MipsAnalyzeImmediate::InstSeq::const_iterator Inst = Seq.begin();
+
+  // The first instruction can be a LUi, which is different from other
+  // instructions (ADDiu, ORI and SLL) in that it does not have a register
+  // operand.
+  if (Inst->Opc == LUi)
+    BuildMI(MBB, II, DL, TII.get(LUi), ATReg)
+      .addImm(SignExtend64<16>(Inst->ImmOpnd));
+  else
+    BuildMI(MBB, II, DL, TII.get(Inst->Opc), ATReg).addReg(ZEROReg)
+      .addImm(SignExtend64<16>(Inst->ImmOpnd));
+
+  // Build the remaining instructions in Seq.
+  for (++Inst; Inst != Seq.end(); ++Inst)
+    BuildMI(MBB, II, DL, TII.get(Inst->Opc), ATReg).addReg(ATReg)
+      .addImm(SignExtend64<16>(Inst->ImmOpnd));
+
+  BuildMI(MBB, II, DL, TII.get(ADDu), Reg).addReg(Reg).addReg(ATReg);
+  */
+
+    llvm_unreachable("coffee: we need to support large imm value");
+}
+
+
 void CoffeeFrameLowering::emitPrologue(MachineFunction &MF) const {
     MachineBasicBlock &MBB = MF.front();
     MachineBasicBlock::iterator MBBI = MBB.begin();
     MachineFrameInfo *MFI = MF.getFrameInfo();
-    CoffeeFunctionInfo *AFI = MF.getInfo<CoffeeFunctionInfo>();
+    CoffeeFunctionInfo *CoffeeFI = MF.getInfo<CoffeeFunctionInfo>();
     const CoffeeRegisterInfo *RegInfo =
             static_cast<const CoffeeRegisterInfo*>(MF.getTarget().getRegisterInfo());
     const CoffeeInstrInfo &TII =
             *static_cast<const CoffeeInstrInfo*>(MF.getTarget().getInstrInfo());
 
-    unsigned VARegSaveSize = AFI->getVarArgsRegSaveSize();
 
+    //guoqing: currently we assume we don't need PIC support,
+    // if needed, we need to reimplement this function to arrange the stack
      bool isPIC = (MF.getTarget().getRelocationModel() == Reloc::PIC_);
      if (isPIC)
          llvm_unreachable("coffee: emitPrologue, PIC");
 
-    if(VARegSaveSize)
-        llvm_unreachable("coffee: Size of the register save area for vararg functions is not zero");
+    // First, compute final stack size.
+    unsigned RegSize = 4;
+    unsigned StackAlign = getStackAlignment();
+    unsigned LocalVarAreaOffset = CoffeeFI->getMaxCallFrameSize();
+    uint64_t StackSize =  RoundUpToAlignment(LocalVarAreaOffset, StackAlign) +
+       RoundUpToAlignment(MFI->getStackSize(), StackAlign);
+
+     // Update stack size
+    MFI->setStackSize(StackSize);
 
 
     const std::vector<CalleeSavedInfo> &CSI = MFI->getCalleeSavedInfo();
     DebugLoc dl = MBBI != MBB.end() ? MBBI->getDebugLoc() : DebugLoc();
     unsigned FramePtr = RegInfo->getFrameRegister(MF);
 
-    // Determine the sizes of each callee-save LR areas and record which frame
-    // belongs to which callee-save spill areas.
-    unsigned GPRCS1Size = 0, GPRCS2Size = 0, DPRCSSize = 0;
-    int FramePtrSpillFI = 0;
-    int D8SpillFI = 0;
 
-    // Allocate the vararg register save area. This is not counted in NumBytes.
-    if (VARegSaveSize)
-        emitSPUpdate(MBB, MBBI, dl, TII, -VARegSaveSize,
-                     MachineInstr::FrameSetup);
-
-    unsigned StackSize = MFI->getStackSize();
+    if (StackSize == 0 && !MFI->adjustsStack()) return;
 
 
-    if (StackSize == 0) return;
-
-   // for (unsigned i = 0, e = CSI.size(); i != e; ++i) {
-        // check spillCalleeSavedRegisters for instruction details
-   //     GPRCS1Size += 4;
-   // }
-
-    emitSPUpdate(MBB, MBBI, dl, TII, -StackSize,
-                      MachineInstr::FrameSetup);
+    // guoqing: the td code should handle the large imm already
+    //if (isInt<15>(-StackSize)) // addi sp, sp, (-stacksize)
+        BuildMI(MBB, MBBI, dl, TII.get(Coffee::ADDri), Coffee::SP).addReg(Coffee::SP).addImm(-StackSize);
+   // else
+   //     expandLargeImm(Coffee::SP, -StackSize, TII, MBB, MBBI, dl);
 
 }
 
 void CoffeeFrameLowering::emitEpilogue(MachineFunction &MF,
                                        MachineBasicBlock &MBB) const {
+
     MachineBasicBlock::iterator MBBI = MBB.getLastNonDebugInstr();
     assert(MBBI->isReturn() && "Can only insert epilog into returning blocks");
     unsigned RetOpcode = MBBI->getOpcode();
     DebugLoc dl = MBBI->getDebugLoc();
     MachineFrameInfo *MFI = MF.getFrameInfo();
-    CoffeeFunctionInfo *AFI = MF.getInfo<CoffeeFunctionInfo>();
+    CoffeeFunctionInfo *CoffeeFI = MF.getInfo<CoffeeFunctionInfo>();
     const TargetRegisterInfo *RegInfo = MF.getTarget().getRegisterInfo();
     const CoffeeInstrInfo &TII =
       *static_cast<const CoffeeInstrInfo*>(MF.getTarget().getInstrInfo());
@@ -123,7 +153,7 @@ void CoffeeFrameLowering::emitEpilogue(MachineFunction &MF,
    if (StackSize == 0) return;
 
 
-   if (!AFI->hasStackFrame()) {
+   if (!CoffeeFI->hasStackFrame()) {
      if (StackSize != 0)
        emitSPUpdate(MBB, MBBI, dl, TII, StackSize);
    } else {
@@ -240,6 +270,11 @@ static unsigned estimateRSStackSizeLimit(MachineFunction &MF,
   }
 
   return Limit;
+}
+
+
+bool CoffeeFrameLowering::targetHandlesStackFrameRounding() const {
+  return true;
 }
 
 void

@@ -24,6 +24,8 @@ add_llvm_target(CoffeeCodeGen
   CoffeeRegisterInfo.cpp
   CoffeeTargetMachine.cpp
   CoffeeSelectionDAGInfo.cpp
+  CoffeeDelaySlotFiller.cpp
+  CoffeeTargetObjectFile.cpp
   )
 
 add_subdirectory(InstPrinter)

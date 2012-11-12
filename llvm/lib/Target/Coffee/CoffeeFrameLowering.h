@@ -23,7 +23,8 @@ namespace llvm {
 class CoffeeFrameLowering: public TargetFrameLowering {
 
 public:
-    CoffeeFrameLowering()
+    CoffeeFrameLowering()                                     //TODO: this should change back to 4,
+
         : TargetFrameLowering(TargetFrameLowering::StackGrowsDown, 8, 0)
     {
         // guoqing: let's use 8 bytes for stack alignment for now, same as mips
@@ -39,6 +40,8 @@ public:
     void emitEpilogue(MachineFunction &MF, MachineBasicBlock &MBB) const;
 
     bool hasFP(const MachineFunction &MF) const;
+
+    bool targetHandlesStackFrameRounding() const;
 
     void processFunctionBeforeCalleeSavedScan(MachineFunction &MF,
                                               RegScavenger *RS = NULL) const;

@@ -30,8 +30,12 @@ namespace COFFEEISD {
 enum NodeType {
     // Start the numbering where the builtin ops and target ops leave off.
     FIRST_NUMBER = ISD::BUILTIN_OP_END,
-    RET_FLAG,     // Return with a flag operand
-    CALL
+    RET,     // Return with a flag operand
+    CALL,
+    BRCOND,
+    CMP,
+    Hi,
+    Lo
 };
 }
 
@@ -90,8 +94,17 @@ public:
 
     SDValue LowerFRAMEADDR(SDValue Op, SelectionDAG &DAG) const;
 
+    SDValue LowerBR_CC(SDValue Op, SelectionDAG &DAG) const;
+    SDValue LowerGlobalAddress(SDValue Op,SelectionDAG &DAG) const;
 
     typedef SmallVector<std::pair<unsigned, SDValue>, 8> RegsToPassVector;
+
+    SDValue getCoffeeCmp(SDValue LHS, SDValue RHS, SelectionDAG &DAG,
+                                 DebugLoc dl) const;
+
+    bool isLegalICmpImmediate(int64_t Imm) const;
+
+    virtual SDValue PerformDAGCombine(SDNode *N, DAGCombinerInfo &DCI) const;
 };
 }
 

@@ -108,6 +108,7 @@ class CoffeeFunctionInfo : public MachineFunctionInfo {
     mutable int DynAllocFI;
     unsigned MaxCallFrameSize;
     MachineFunction& MF;
+    unsigned SRetReturnReg;
   public:
     CoffeeFunctionInfo(MachineFunction& MF) :
       MF(MF),
@@ -119,7 +120,7 @@ class CoffeeFunctionInfo : public MachineFunctionInfo {
       NumAlignedDPRCS2Regs(0),
       JumpTableUId(0), PICLabelUId(0),
       VarArgsFrameIndex(0), HasITBlocks(false), InArgFIRange(std::make_pair(-1, 0)),
-        OutArgFIRange(std::make_pair(-1, 0)), DynAllocFI(0), MaxCallFrameSize(0) {}
+        OutArgFIRange(std::make_pair(-1, 0)), DynAllocFI(0), MaxCallFrameSize(0), SRetReturnReg(0) {}
 
    /* explicit CoffeeFunctionInfo(MachineFunction &MF) :
          MF(MF),
@@ -294,6 +295,10 @@ class CoffeeFunctionInfo : public MachineFunctionInfo {
 
     unsigned getMaxCallFrameSize() const { return MaxCallFrameSize; }
     void setMaxCallFrameSize(unsigned S) { MaxCallFrameSize = S; }
+
+
+    unsigned getSRetReturnReg() const { return SRetReturnReg; }
+    void setSRetReturnReg(unsigned Reg) { SRetReturnReg = Reg; }
   };
 
 } // end of namespace llvm

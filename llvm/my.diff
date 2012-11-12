@@ -1,0 +1,2638 @@
+diff --git a/lib/Target/Coffee/CMakeLists.txt b/lib/Target/Coffee/CMakeLists.txt
+index d4ac325..fd925d5 100644
+--- a/lib/Target/Coffee/CMakeLists.txt
++++ b/lib/Target/Coffee/CMakeLists.txt
+@@ -24,6 +24,8 @@ add_llvm_target(CoffeeCodeGen
+   CoffeeRegisterInfo.cpp
+   CoffeeTargetMachine.cpp
+   CoffeeSelectionDAGInfo.cpp
++  CoffeeDelaySlotFiller.cpp
++  CoffeeTargetObjectFile.cpp
+   )
+ 
+ add_subdirectory(InstPrinter)
+diff --git a/lib/Target/Coffee/Coffee.h b/lib/Target/Coffee/Coffee.h
+index 56a32cc..082c76d 100644
+--- a/lib/Target/Coffee/Coffee.h
++++ b/lib/Target/Coffee/Coffee.h
+@@ -33,6 +33,7 @@ namespace llvm {
+ 
+   FunctionPass *createCoffeeBranchSelectionPass();
+   FunctionPass *createCoffeeISelDag(CoffeeTargetMachine &TM);
++  FunctionPass *createCoffeeDelaySlotFillerPass(CoffeeTargetMachine &TM);
+   FunctionPass *createCoffeeJITCodeEmitterPass(CoffeeTargetMachine &TM,
+                                             JITCodeEmitter &MCE);
+   void LowerCoffeeMachineInstrToMCInst(const MachineInstr *MI, MCInst &OutMI,
+@@ -45,11 +46,14 @@ namespace llvm {
+     //===------------------------------------------------------------------===//
+     // Coffee Specific MachineOperand flags.
+     MO_NO_FLAG,
++    MO_ABS_HI,
++
++    MO_ABS_LO,
+     
+     /// MO_DARWIN_STUB - On a symbol operand "FOO", this indicates that the
+     /// reference is actually to the "FOO$stub" symbol.  This is used for calls
+     /// and jumps to external functions on Tiger and earlier.
+-    MO_DARWIN_STUB = 1,
++    //MO_DARWIN_STUB = 1,
+     
+     /// MO_LO16, MO_HA16 - lo16(symbol) and ha16(symbol)
+     MO_LO16 = 4, MO_HA16 = 8,
+diff --git a/lib/Target/Coffee/CoffeeDelaySlotFiller.cpp b/lib/Target/Coffee/CoffeeDelaySlotFiller.cpp
+new file mode 100644
+index 0000000..c90f9da
+--- /dev/null
++++ b/lib/Target/Coffee/CoffeeDelaySlotFiller.cpp
+@@ -0,0 +1,253 @@
++//===-- DelaySlotFiller.cpp - Coffee Delay Slot Filler ----------------------===//
++//
++//                     The LLVM Compiler Infrastructure
++//
++// This file is distributed under the University of Illinois Open Source
++// License. See LICENSE.TXT for details.
++//
++//===----------------------------------------------------------------------===//
++//
++// Simple pass to fills delay slots with useful instructions.
++//
++//===----------------------------------------------------------------------===//
++
++#define DEBUG_TYPE "delay-slot-filler"
++
++#include "Coffee.h"
++#include "CoffeeTargetMachine.h"
++#include "llvm/CodeGen/MachineFunctionPass.h"
++#include "llvm/CodeGen/MachineInstrBuilder.h"
++#include "llvm/Support/CommandLine.h"
++#include "llvm/Target/TargetMachine.h"
++#include "llvm/Target/TargetInstrInfo.h"
++#include "llvm/Target/TargetRegisterInfo.h"
++#include "llvm/ADT/SmallSet.h"
++#include "llvm/ADT/Statistic.h"
++
++using namespace llvm;
++
++STATISTIC(FilledSlots, "Number of delay slots filled");
++STATISTIC(UsefulSlots, "Number of delay slots filled with instructions that"
++                       " are not NOP.");
++
++static cl::opt<bool> EnableDelaySlotFiller(
++  "enable-Coffee-delay-filler",
++  cl::init(false),
++  cl::desc("Fill the Coffee delay slots useful instructions."),
++  cl::Hidden);
++
++namespace {
++  struct Filler : public MachineFunctionPass {
++
++    TargetMachine &TM;
++    const TargetInstrInfo *TII;
++    MachineBasicBlock::iterator LastFiller;
++
++    static char ID;
++    Filler(TargetMachine &tm)
++      : MachineFunctionPass(ID), TM(tm), TII(tm.getInstrInfo()) { }
++
++    virtual const char *getPassName() const {
++      return "Coffee Delay Slot Filler";
++    }
++
++    bool runOnMachineBasicBlock(MachineBasicBlock &MBB);
++    bool runOnMachineFunction(MachineFunction &F) {
++      bool Changed = false;
++      for (MachineFunction::iterator FI = F.begin(), FE = F.end();
++           FI != FE; ++FI)
++        Changed |= runOnMachineBasicBlock(*FI);
++      return Changed;
++    }
++
++    bool isDelayFiller(MachineBasicBlock &MBB,
++                       MachineBasicBlock::iterator candidate);
++
++    void insertCallUses(MachineBasicBlock::iterator MI,
++                        SmallSet<unsigned, 32>& RegDefs,
++                        SmallSet<unsigned, 32>& RegUses);
++
++    void insertDefsUses(MachineBasicBlock::iterator MI,
++                        SmallSet<unsigned, 32>& RegDefs,
++                        SmallSet<unsigned, 32>& RegUses);
++
++    bool IsRegInSet(SmallSet<unsigned, 32>& RegSet,
++                    unsigned Reg);
++
++    bool delayHasHazard(MachineBasicBlock::iterator candidate,
++                        bool &sawLoad, bool &sawStore,
++                        SmallSet<unsigned, 32> &RegDefs,
++                        SmallSet<unsigned, 32> &RegUses);
++
++    bool
++    findDelayInstr(MachineBasicBlock &MBB, MachineBasicBlock::iterator slot,
++                   MachineBasicBlock::iterator &Filler);
++
++
++  };
++  char Filler::ID = 0;
++} // end of anonymous namespace
++
++/// runOnMachineBasicBlock - Fill in delay slots for the given basic block.
++/// We assume there is only one delay slot per delayed instruction.
++bool Filler::
++runOnMachineBasicBlock(MachineBasicBlock &MBB) {
++  bool Changed = false;
++  LastFiller = MBB.end();
++
++  for (MachineBasicBlock::iterator I = MBB.begin(); I != MBB.end(); ++I)
++    if (I->hasDelaySlot()) {
++      ++FilledSlots;
++      Changed = true;
++
++      MachineBasicBlock::iterator D;
++
++      if (EnableDelaySlotFiller && findDelayInstr(MBB, I, D)) {
++        MBB.splice(llvm::next(I), &MBB, D);
++        ++UsefulSlots;
++      } else
++        BuildMI(MBB, llvm::next(I), I->getDebugLoc(), TII->get(Coffee::NOP));
++
++      // Record the filler instruction that filled the delay slot.
++      // The instruction after it will be visited in the next iteration.
++      LastFiller = ++I;
++     }
++  return Changed;
++
++}
++
++/// createCoffeeDelaySlotFillerPass - Returns a pass that fills in delay
++/// slots in Coffee MachineFunctions
++FunctionPass *llvm::createCoffeeDelaySlotFillerPass(CoffeeTargetMachine &tm) {
++  return new Filler(tm);
++}
++
++bool Filler::findDelayInstr(MachineBasicBlock &MBB,
++                            MachineBasicBlock::iterator slot,
++                            MachineBasicBlock::iterator &Filler) {
++  SmallSet<unsigned, 32> RegDefs;
++  SmallSet<unsigned, 32> RegUses;
++
++  insertDefsUses(slot, RegDefs, RegUses);
++
++  bool sawLoad = false;
++  bool sawStore = false;
++
++  for (MachineBasicBlock::reverse_iterator I(slot); I != MBB.rend(); ++I) {
++    // skip debug value
++    if (I->isDebugValue())
++      continue;
++
++    // Convert to forward iterator.
++    MachineBasicBlock::iterator FI(llvm::next(I).base());
++
++    if (I->hasUnmodeledSideEffects()
++        || I->isInlineAsm()
++        || I->isLabel()
++        || FI == LastFiller
++        || I->isPseudo()
++        //
++        // Should not allow:
++        // ERET, DERET or WAIT, PAUSE. Need to add these to instruction
++        // list. TBD.
++        )
++      break;
++
++    if (delayHasHazard(FI, sawLoad, sawStore, RegDefs, RegUses)) {
++      insertDefsUses(FI, RegDefs, RegUses);
++      continue;
++    }
++
++    Filler = FI;
++    return true;
++  }
++
++  return false;
++}
++
++bool Filler::delayHasHazard(MachineBasicBlock::iterator candidate,
++                            bool &sawLoad, bool &sawStore,
++                            SmallSet<unsigned, 32> &RegDefs,
++                            SmallSet<unsigned, 32> &RegUses) {
++  if (candidate->isImplicitDef() || candidate->isKill())
++    return true;
++
++  // Loads or stores cannot be moved past a store to the delay slot
++  // and stores cannot be moved past a load.
++  if (candidate->mayLoad()) {
++    if (sawStore)
++      return true;
++    sawLoad = true;
++  }
++
++  if (candidate->mayStore()) {
++    if (sawStore)
++      return true;
++    sawStore = true;
++    if (sawLoad)
++      return true;
++  }
++
++  assert((!candidate->isCall() && !candidate->isReturn()) &&
++         "Cannot put calls or returns in delay slot.");
++
++  for (unsigned i = 0, e = candidate->getNumOperands(); i!= e; ++i) {
++    const MachineOperand &MO = candidate->getOperand(i);
++    unsigned Reg;
++
++    if (!MO.isReg() || !(Reg = MO.getReg()))
++      continue; // skip
++
++    if (MO.isDef()) {
++      // check whether Reg is defined or used before delay slot.
++      if (IsRegInSet(RegDefs, Reg) || IsRegInSet(RegUses, Reg))
++        return true;
++    }
++    if (MO.isUse()) {
++      // check whether Reg is defined before delay slot.
++      if (IsRegInSet(RegDefs, Reg))
++        return true;
++    }
++  }
++  return false;
++}
++
++// Insert Defs and Uses of MI into the sets RegDefs and RegUses.
++void Filler::insertDefsUses(MachineBasicBlock::iterator MI,
++                            SmallSet<unsigned, 32>& RegDefs,
++                            SmallSet<unsigned, 32>& RegUses) {
++  // If MI is a call or return, just examine the explicit non-variadic operands.
++  MCInstrDesc MCID = MI->getDesc();
++  unsigned e = MI->isCall() || MI->isReturn() ? MCID.getNumOperands() :
++                                                MI->getNumOperands();
++
++  // Add RA to RegDefs to prevent users of RA from going into delay slot.
++  if (MI->isCall())
++    RegDefs.insert(Coffee::LR);
++
++  for (unsigned i = 0; i != e; ++i) {
++    const MachineOperand &MO = MI->getOperand(i);
++    unsigned Reg;
++
++    if (!MO.isReg() || !(Reg = MO.getReg()))
++      continue;
++
++    if (MO.isDef())
++      RegDefs.insert(Reg);
++    else if (MO.isUse())
++      RegUses.insert(Reg);
++  }
++}
++
++//returns true if the Reg or its alias is in the RegSet.
++bool Filler::IsRegInSet(SmallSet<unsigned, 32>& RegSet, unsigned Reg) {
++  if (RegSet.count(Reg))
++    return true;
++  // check Aliased Registers
++  for (const uint16_t *Alias = TM.getRegisterInfo()->getAliasSet(Reg);
++       *Alias; ++Alias)
++    if (RegSet.count(*Alias))
++      return true;
++
++  return false;
++}
+diff --git a/lib/Target/Coffee/CoffeeFrameLowering.cpp b/lib/Target/Coffee/CoffeeFrameLowering.cpp
+index 284b5b9..9db0d8c 100644
+--- a/lib/Target/Coffee/CoffeeFrameLowering.cpp
++++ b/lib/Target/Coffee/CoffeeFrameLowering.cpp
+@@ -52,64 +52,94 @@ emitSPUpdate(MachineBasicBlock &MBB, MachineBasicBlock::iterator &MBBI,
+                                TII, MIFlags);
+ }
+ 
++
++static void expandLargeImm(unsigned Reg, int64_t Imm,
++                           const CoffeeInstrInfo &TII, MachineBasicBlock& MBB,
++                           MachineBasicBlock::iterator II, DebugLoc DL) {
++ /* unsigned LUi = IsN64 ? Mips::LUi64 : Mips::LUi;
++  unsigned ADDu = IsN64 ? Mips::DADDu : Mips::ADDu;
++  unsigned ZEROReg = IsN64 ? Mips::ZERO_64 : Mips::ZERO;
++  unsigned ATReg = IsN64 ? Mips::AT_64 : Mips::AT;
++  MipsAnalyzeImmediate AnalyzeImm;
++  const MipsAnalyzeImmediate::InstSeq &Seq =
++    AnalyzeImm.Analyze(Imm, IsN64 ? 64 : 32, false  LastInstrIsADDiu );
++  MipsAnalyzeImmediate::InstSeq::const_iterator Inst = Seq.begin();
++
++  // The first instruction can be a LUi, which is different from other
++  // instructions (ADDiu, ORI and SLL) in that it does not have a register
++  // operand.
++  if (Inst->Opc == LUi)
++    BuildMI(MBB, II, DL, TII.get(LUi), ATReg)
++      .addImm(SignExtend64<16>(Inst->ImmOpnd));
++  else
++    BuildMI(MBB, II, DL, TII.get(Inst->Opc), ATReg).addReg(ZEROReg)
++      .addImm(SignExtend64<16>(Inst->ImmOpnd));
++
++  // Build the remaining instructions in Seq.
++  for (++Inst; Inst != Seq.end(); ++Inst)
++    BuildMI(MBB, II, DL, TII.get(Inst->Opc), ATReg).addReg(ATReg)
++      .addImm(SignExtend64<16>(Inst->ImmOpnd));
++
++  BuildMI(MBB, II, DL, TII.get(ADDu), Reg).addReg(Reg).addReg(ATReg);
++  */
++
++    llvm_unreachable("coffee: we need to support large imm value");
++}
++
++
+ void CoffeeFrameLowering::emitPrologue(MachineFunction &MF) const {
+     MachineBasicBlock &MBB = MF.front();
+     MachineBasicBlock::iterator MBBI = MBB.begin();
+     MachineFrameInfo *MFI = MF.getFrameInfo();
+-    CoffeeFunctionInfo *AFI = MF.getInfo<CoffeeFunctionInfo>();
++    CoffeeFunctionInfo *CoffeeFI = MF.getInfo<CoffeeFunctionInfo>();
+     const CoffeeRegisterInfo *RegInfo =
+             static_cast<const CoffeeRegisterInfo*>(MF.getTarget().getRegisterInfo());
+     const CoffeeInstrInfo &TII =
+             *static_cast<const CoffeeInstrInfo*>(MF.getTarget().getInstrInfo());
+ 
+-    unsigned VARegSaveSize = AFI->getVarArgsRegSaveSize();
+ 
++    //guoqing: currently we assume we don't need PIC support,
++    // if needed, we need to reimplement this function to arrange the stack
+      bool isPIC = (MF.getTarget().getRelocationModel() == Reloc::PIC_);
+      if (isPIC)
+          llvm_unreachable("coffee: emitPrologue, PIC");
+ 
+-    if(VARegSaveSize)
+-        llvm_unreachable("coffee: Size of the register save area for vararg functions is not zero");
++    // First, compute final stack size.
++    unsigned RegSize = 4;
++    unsigned StackAlign = getStackAlignment();
++    unsigned LocalVarAreaOffset = CoffeeFI->getMaxCallFrameSize();
++    uint64_t StackSize =  RoundUpToAlignment(LocalVarAreaOffset, StackAlign) +
++       RoundUpToAlignment(MFI->getStackSize(), StackAlign);
++
++     // Update stack size
++    MFI->setStackSize(StackSize);
+ 
+ 
+     const std::vector<CalleeSavedInfo> &CSI = MFI->getCalleeSavedInfo();
+     DebugLoc dl = MBBI != MBB.end() ? MBBI->getDebugLoc() : DebugLoc();
+     unsigned FramePtr = RegInfo->getFrameRegister(MF);
+ 
+-    // Determine the sizes of each callee-save LR areas and record which frame
+-    // belongs to which callee-save spill areas.
+-    unsigned GPRCS1Size = 0, GPRCS2Size = 0, DPRCSSize = 0;
+-    int FramePtrSpillFI = 0;
+-    int D8SpillFI = 0;
+ 
+-    // Allocate the vararg register save area. This is not counted in NumBytes.
+-    if (VARegSaveSize)
+-        emitSPUpdate(MBB, MBBI, dl, TII, -VARegSaveSize,
+-                     MachineInstr::FrameSetup);
++    if (StackSize == 0 && !MFI->adjustsStack()) return;
+ 
+-    unsigned StackSize = MFI->getStackSize();
+ 
+-
+-    if (StackSize == 0) return;
+-
+-   // for (unsigned i = 0, e = CSI.size(); i != e; ++i) {
+-        // check spillCalleeSavedRegisters for instruction details
+-   //     GPRCS1Size += 4;
+-   // }
+-
+-    emitSPUpdate(MBB, MBBI, dl, TII, -StackSize,
+-                      MachineInstr::FrameSetup);
++    // guoqing: the td code should handle the large imm already
++    //if (isInt<15>(-StackSize)) // addi sp, sp, (-stacksize)
++        BuildMI(MBB, MBBI, dl, TII.get(Coffee::ADDri), Coffee::SP).addReg(Coffee::SP).addImm(-StackSize);
++   // else
++   //     expandLargeImm(Coffee::SP, -StackSize, TII, MBB, MBBI, dl);
+ 
+ }
+ 
+ void CoffeeFrameLowering::emitEpilogue(MachineFunction &MF,
+                                        MachineBasicBlock &MBB) const {
++
+     MachineBasicBlock::iterator MBBI = MBB.getLastNonDebugInstr();
+     assert(MBBI->isReturn() && "Can only insert epilog into returning blocks");
+     unsigned RetOpcode = MBBI->getOpcode();
+     DebugLoc dl = MBBI->getDebugLoc();
+     MachineFrameInfo *MFI = MF.getFrameInfo();
+-    CoffeeFunctionInfo *AFI = MF.getInfo<CoffeeFunctionInfo>();
++    CoffeeFunctionInfo *CoffeeFI = MF.getInfo<CoffeeFunctionInfo>();
+     const TargetRegisterInfo *RegInfo = MF.getTarget().getRegisterInfo();
+     const CoffeeInstrInfo &TII =
+       *static_cast<const CoffeeInstrInfo*>(MF.getTarget().getInstrInfo());
+@@ -123,7 +153,7 @@ void CoffeeFrameLowering::emitEpilogue(MachineFunction &MF,
+    if (StackSize == 0) return;
+ 
+ 
+-   if (!AFI->hasStackFrame()) {
++   if (!CoffeeFI->hasStackFrame()) {
+      if (StackSize != 0)
+        emitSPUpdate(MBB, MBBI, dl, TII, StackSize);
+    } else {
+@@ -242,6 +272,11 @@ static unsigned estimateRSStackSizeLimit(MachineFunction &MF,
+   return Limit;
+ }
+ 
++
++bool CoffeeFrameLowering::targetHandlesStackFrameRounding() const {
++  return true;
++}
++
+ void
+ CoffeeFrameLowering::processFunctionBeforeCalleeSavedScan(MachineFunction &MF,
+                                                           RegScavenger *RS) const {
+diff --git a/lib/Target/Coffee/CoffeeFrameLowering.h b/lib/Target/Coffee/CoffeeFrameLowering.h
+index ef167da..26912e7 100644
+--- a/lib/Target/Coffee/CoffeeFrameLowering.h
++++ b/lib/Target/Coffee/CoffeeFrameLowering.h
+@@ -23,7 +23,8 @@ namespace llvm {
+ class CoffeeFrameLowering: public TargetFrameLowering {
+ 
+ public:
+-    CoffeeFrameLowering()
++    CoffeeFrameLowering()                                     //TODO: this should change back to 4,
++
+         : TargetFrameLowering(TargetFrameLowering::StackGrowsDown, 8, 0)
+     {
+         // guoqing: let's use 8 bytes for stack alignment for now, same as mips
+@@ -40,6 +41,8 @@ public:
+ 
+     bool hasFP(const MachineFunction &MF) const;
+ 
++    bool targetHandlesStackFrameRounding() const;
++
+     void processFunctionBeforeCalleeSavedScan(MachineFunction &MF,
+                                               RegScavenger *RS = NULL) const;
+     void processFunctionBeforeFrameFinalized(MachineFunction &MF) const;
+diff --git a/lib/Target/Coffee/CoffeeISelDAGToDAG.cpp b/lib/Target/Coffee/CoffeeISelDAGToDAG.cpp
+index dcbc14f..ab3f081 100644
+--- a/lib/Target/Coffee/CoffeeISelDAGToDAG.cpp
++++ b/lib/Target/Coffee/CoffeeISelDAGToDAG.cpp
+@@ -48,8 +48,7 @@ public:
+     virtual SDNode *Select(SDNode *N);
+ 
+     //Complex Pattern selectors
+-    bool SelectADDRri(SDValue N, SDValue &Base, SDValue &Offset);
+-    bool SelectADDRrr(SDValue N, SDValue &R1, SDValue &R2);
++    bool SelectAddr(SDNode *Parent, SDValue N, SDValue &Base, SDValue &Offset);
+ 
+     /// getI32Imm - Return a target constant of type i32 with the specified
+     /// value.
+@@ -62,38 +61,167 @@ public:
+ 
+ 
+ #include "CoffeeGenRegisterInfo.inc"
+-bool CoffeeDAGToDAGISel::SelectADDRri(SDValue Addr, SDValue &Base, SDValue &Offset) {
++bool CoffeeDAGToDAGISel::SelectAddr(SDNode *Parent, SDValue Addr, SDValue &Base, SDValue &Offset) {
++    EVT ValTy = Addr.getValueType();
++
++    // If Parent is an unaligned f32 load or store, select a (base + index)
++    // floating point load/store instruction (luxc1 or suxc1).
++    const LSBaseSDNode* LS = 0;
++
++    if (Parent && (LS = dyn_cast<LSBaseSDNode>(Parent))) {
++      EVT VT = LS->getMemoryVT();
++
++      if (VT.getSizeInBits() / 8 > LS->getAlignment()) {
++        assert(TLI.allowsUnalignedMemoryAccesses(VT) &&
++               "Unaligned loads/stores not supported for this type.");
++        if (VT == MVT::f32)
++          return false;
++      }
++    }
++
++    // if Address is FI, get the TargetFrameIndex.
+     if (FrameIndexSDNode *FIN = dyn_cast<FrameIndexSDNode>(Addr)) {
+-      Base = CurDAG->getTargetFrameIndex(FIN->getIndex(), MVT::i32);
+-      Offset = CurDAG->getTargetConstant(0, MVT::i32);
++      Base   = CurDAG->getTargetFrameIndex(FIN->getIndex(), ValTy);
++      Offset = CurDAG->getTargetConstant(0, ValTy);
+       return true;
+     }
+-    if (Addr.getOpcode() == ISD::TargetExternalSymbol ||
+-        Addr.getOpcode() == ISD::TargetGlobalAddress)
+-      return false;  // direct calls.
+-
+-    if (Addr.getOpcode() == ISD::ADD)
+-        llvm_unreachable("coffee: select ADDRri");
+-    Base = Addr;
+-    Offset = CurDAG->getTargetConstant(0, MVT::i32);
++
++
++
++
++      if ((Addr.getOpcode() == ISD::TargetExternalSymbol ||
++          Addr.getOpcode() == ISD::TargetGlobalAddress))
++        return false;
++
++
++    // Addresses of the form FI+const or FI|const
++    if (CurDAG->isBaseWithConstantOffset(Addr)) {
++      ConstantSDNode *CN = dyn_cast<ConstantSDNode>(Addr.getOperand(1));
++      if (isInt<16>(CN->getSExtValue())) {
++
++        // If the first operand is a FI, get the TargetFI Node
++        if (FrameIndexSDNode *FIN = dyn_cast<FrameIndexSDNode>
++                                    (Addr.getOperand(0)))
++          Base = CurDAG->getTargetFrameIndex(FIN->getIndex(), ValTy);
++        else
++          Base = Addr.getOperand(0);
++
++        Offset = CurDAG->getTargetConstant(CN->getZExtValue(), ValTy);
++        return true;
++      }
++    }
++
++    // Operand is a result from an ADD.
++    if (Addr.getOpcode() == ISD::ADD) {
++
++        llvm_unreachable("coffee: we need to recheck");
++      // When loading from constant pools, load the lower address part in
++      // the instruction itself. Example, instead of:
++      //  lui $2, %hi($CPI1_0)
++      //  addiu $2, $2, %lo($CPI1_0)
++      //  lwc1 $f0, 0($2)
++      // Generate:
++      //  lui $2, %hi($CPI1_0)
++      //  lwc1 $f0, %lo($CPI1_0)($2)
++     /* if (Addr.getOperand(1).getOpcode() == MipsISD::Lo) {
++        SDValue LoVal = Addr.getOperand(1);
++        if (isa<ConstantPoolSDNode>(LoVal.getOperand(0)) ||
++            isa<GlobalAddressSDNode>(LoVal.getOperand(0))) {
++          Base = Addr.getOperand(0);
++          Offset = LoVal.getOperand(0);
++          return true;
++        }
++      }
++
++      // If an indexed floating point load/store can be emitted, return false.
++      if (LS && (LS->getMemoryVT() == MVT::f32 || LS->getMemoryVT() == MVT::f64) &&
++          Subtarget.hasMips32r2Or64())
++        return false;*/
++    }
++
++    Base   = Addr;
++    Offset = CurDAG->getTargetConstant(0, ValTy);
+     return true;
+   }
+ 
+-bool CoffeeDAGToDAGISel::SelectADDRrr(SDValue Addr, SDValue &R1, SDValue &R2) {
+-    if (Addr.getOpcode() == ISD::FrameIndex) return false;
+-    if (Addr.getOpcode() == ISD::TargetExternalSymbol ||
+-        Addr.getOpcode() == ISD::TargetGlobalAddress)
+-      return false;  // direct calls.
++SDNode* CoffeeDAGToDAGISel::Select(SDNode *N) {
+ 
+-    if (Addr.getOpcode() == ISD::ADD)
+-        llvm_unreachable("coffee: select ADDRrr");
++    DebugLoc dl = N->getDebugLoc();
+ 
+-    R1 = Addr;
+-    R2 = CurDAG->getRegister(Coffee::T0, MVT::i32);
+-    return true;
++    if (N->isMachineOpcode())
++      return NULL;   // Already selected.
++
++    switch (N->getOpcode()) {
++    default: break;
++    case COFFEEISD::BRCOND: {
++
++
++        // Pattern: (ARMbrcond:void (bb:Other):$dst, (imm:i32):$cc)
++        // Emits: (Bcc:void (bb:Other):$dst, (imm:i32):$cc)
++        // Pattern complexity = 6  cost = 1  size = 0
++
++        // Pattern: (ARMbrcond:void (bb:Other):$dst, (imm:i32):$cc)
++        // Emits: (tBcc:void (bb:Other):$dst, (imm:i32):$cc)
++        // Pattern complexity = 6  cost = 1  size = 0
++
++        // Pattern: (ARMbrcond:void (bb:Other):$dst, (imm:i32):$cc)
++        // Emits: (t2Bcc:void (bb:Other):$dst, (imm:i32):$cc)
++        // Pattern complexity = 6  cost = 1  size = 0
++
++
++        SDValue Chain = N->getOperand(0);
++        SDValue N1 = N->getOperand(1);
++        SDValue N2 = N->getOperand(2);
++        SDValue N3 = N->getOperand(3);
++        SDValue InFlag = N->getOperand(4);
++        assert(N1.getOpcode() == ISD::BasicBlock);
++        assert(N2.getOpcode() == ISD::Constant);
++        assert(N3.getOpcode() == ISD::Register);
++
++
++        ISD::CondCode cc = (ISD::CondCode)cast<ConstantSDNode>(N2)->getZExtValue();
++
++        unsigned Opc = 0;
++        switch (cc) {
++        default:
++            llvm_unreachable("coffee:: unexpected condition code");
++            break;
++        case ISD::SETEQ:
++               Opc = Coffee::BEQ;
++               break;
++        case ISD::SETGT:
++               Opc = Coffee::BGT;
++               break;
++        case ISD::SETGE:
++               Opc = Coffee::BEGT;
++               break;
++        case ISD::SETLT:
++               Opc = Coffee::BLT;
++               break;
++        case ISD::SETLE:
++               Opc = Coffee::BELT;
++               break;
++        case ISD::SETNE:
++               Opc = Coffee::BNE;
++               break;
++
++        }
++
++
++        SDValue Ops[] = { N3, N1, Chain, InFlag };
++        SDNode *ResNode = CurDAG->getMachineNode(Opc, dl, MVT::Other,
++                                                 MVT::Glue, Ops, 4);
++        Chain = SDValue(ResNode, 0);
++        if (N->getNumValues() == 2) {
++           int test = 1;
++        }
++        ReplaceUses(SDValue(N, 0),
++                    SDValue(Chain.getNode(), Chain.getResNo()));
++        return NULL;
++
++    }
+ }
+ 
+-SDNode* CoffeeDAGToDAGISel::Select(SDNode *N) {
+     return SelectCode(N);
+ }
+ /// createCoffeeISelDag - This pass converts a legalized DAG into a
+diff --git a/lib/Target/Coffee/CoffeeISelLowering.cpp b/lib/Target/Coffee/CoffeeISelLowering.cpp
+index b048829..5c9e0d4 100644
+--- a/lib/Target/Coffee/CoffeeISelLowering.cpp
++++ b/lib/Target/Coffee/CoffeeISelLowering.cpp
+@@ -16,6 +16,7 @@
+ #include "CoffeePerfectShuffle.h"
+ #include "CoffeeTargetMachine.h"
+ #include "MCTargetDesc/CoffeePredicates.h"
++#include "CoffeeTargetObjectFile.h"
+ #include "llvm/CallingConv.h"
+ #include "llvm/Constants.h"
+ #include "llvm/DerivedTypes.h"
+@@ -49,14 +50,156 @@ CoffeeTargetLowering::CoffeeTargetLowering(CoffeeTargetMachine &TM)
+     : TargetLowering(TM, new TargetLoweringObjectFileELF()) {
+ 
+     // Set up the register classes.
++    setBooleanContents(ZeroOrOneBooleanContent);
++    setBooleanVectorContents(ZeroOrOneBooleanContent); // FIXME: Is this correct?
+ 
+     addRegisterClass(MVT::i32, Coffee::GPRCRegisterClass);
+     addRegisterClass(MVT::f32, Coffee::FPRCRegisterClass);
+ 
+-    setOperationAction(ISD::DYNAMIC_STACKALLOC,MVT::i32 ,Expand);
+ 
+-    setOperationAction(ISD::LOAD, MVT::i32, Legal);
+-    setOperationAction(ISD::STORE,  MVT::i32, Legal);
++
++    ///////
++
++    // Load extented operations for i1 types must be promoted
++    setLoadExtAction(ISD::EXTLOAD,  MVT::i1,  Promote);
++    setLoadExtAction(ISD::ZEXTLOAD, MVT::i1,  Promote);
++    setLoadExtAction(ISD::SEXTLOAD, MVT::i1,  Promote);
++
++
++    setLoadExtAction(ISD::EXTLOAD, MVT::f32, Expand);
++    setTruncStoreAction(MVT::f64, MVT::f32, Expand);
++
++    AddPromotedToType(ISD::SETCC, MVT::i1, MVT::i32);
++
++
++
++    setOperationAction(ISD::SETCC,     MVT::i32, Expand);
++    setOperationAction(ISD::SETCC,     MVT::f32, Expand);
++    setOperationAction(ISD::SETCC,     MVT::f64, Expand);
++    setOperationAction(ISD::SELECT,    MVT::i32, Custom);
++    setOperationAction(ISD::SELECT,    MVT::f32, Custom);
++    setOperationAction(ISD::SELECT,    MVT::f64, Custom);
++    setOperationAction(ISD::SELECT_CC, MVT::i32, Custom);
++    setOperationAction(ISD::SELECT_CC, MVT::f32, Custom);
++    setOperationAction(ISD::SELECT_CC, MVT::f64, Custom);
++
++    setOperationAction(ISD::BRCOND,    MVT::Other, Expand);
++    setOperationAction(ISD::BR_CC,     MVT::i32,   Custom);
++    setOperationAction(ISD::BR_CC,     MVT::f32,   Custom);
++    setOperationAction(ISD::BR_CC,     MVT::f64,   Custom);
++    setOperationAction(ISD::BR_CC,     MVT::Other, Custom);
++
++    setOperationAction(ISD::BR_JT,     MVT::Other, Custom);
++
++
++
++    // Mips Custom Operations
++    setOperationAction(ISD::GlobalAddress,      MVT::i32,   Custom);
++    setOperationAction(ISD::BlockAddress,       MVT::i32,   Custom);
++    setOperationAction(ISD::GlobalTLSAddress,   MVT::i32,   Custom);
++    setOperationAction(ISD::JumpTable,          MVT::i32,   Custom);
++    setOperationAction(ISD::ConstantPool,       MVT::i32,   Custom);
++    setOperationAction(ISD::SELECT,             MVT::f32,   Custom);
++    setOperationAction(ISD::SELECT,             MVT::f64,   Custom);
++    setOperationAction(ISD::SELECT,             MVT::i32,   Custom);
++
++
++
++
++    setOperationAction(ISD::DYNAMIC_STACKALLOC, MVT::i32,   Custom);
++    setOperationAction(ISD::VASTART,            MVT::Other, Custom);
++    setOperationAction(ISD::FCOPYSIGN,          MVT::f32,   Custom);
++    setOperationAction(ISD::FCOPYSIGN,          MVT::f64,   Custom);
++    setOperationAction(ISD::MEMBARRIER,         MVT::Other, Custom);
++    setOperationAction(ISD::ATOMIC_FENCE,       MVT::Other, Custom);
++
++    if (!TM.Options.NoNaNsFPMath) {
++      setOperationAction(ISD::FABS,             MVT::f32,   Custom);
++      setOperationAction(ISD::FABS,             MVT::f64,   Custom);
++    }
++
++    setOperationAction(ISD::SDIV, MVT::i32, Expand);
++    setOperationAction(ISD::SREM, MVT::i32, Expand);
++    setOperationAction(ISD::UDIV, MVT::i32, Expand);
++    setOperationAction(ISD::UREM, MVT::i32, Expand);
++    setOperationAction(ISD::SDIV, MVT::i64, Expand);
++    setOperationAction(ISD::SREM, MVT::i64, Expand);
++    setOperationAction(ISD::UDIV, MVT::i64, Expand);
++    setOperationAction(ISD::UREM, MVT::i64, Expand);
++
++    // Operations not directly supported by coffee.
++    setOperationAction(ISD::BR_JT,             MVT::Other, Expand);
++
++    setOperationAction(ISD::SELECT_CC,         MVT::Other, Expand);
++    setOperationAction(ISD::UINT_TO_FP,        MVT::i32,   Expand);
++    setOperationAction(ISD::UINT_TO_FP,        MVT::i64,   Expand);
++    setOperationAction(ISD::FP_TO_UINT,        MVT::i32,   Expand);
++    setOperationAction(ISD::FP_TO_UINT,        MVT::i64,   Expand);
++    setOperationAction(ISD::SIGN_EXTEND_INREG, MVT::i1,    Expand);
++    setOperationAction(ISD::CTPOP,             MVT::i32,   Expand);
++    setOperationAction(ISD::CTPOP,             MVT::i64,   Expand);
++    setOperationAction(ISD::CTTZ,              MVT::i32,   Expand);
++    setOperationAction(ISD::CTTZ,              MVT::i64,   Expand);
++    setOperationAction(ISD::CTTZ_ZERO_UNDEF,   MVT::i32,   Expand);
++    setOperationAction(ISD::CTTZ_ZERO_UNDEF,   MVT::i64,   Expand);
++    setOperationAction(ISD::CTLZ_ZERO_UNDEF,   MVT::i32,   Expand);
++    setOperationAction(ISD::CTLZ_ZERO_UNDEF,   MVT::i64,   Expand);
++    setOperationAction(ISD::ROTL,              MVT::i32,   Expand);
++    setOperationAction(ISD::ROTL,              MVT::i64,   Expand);
++    setOperationAction(ISD::ROTR, MVT::i32,   Expand);
++    setOperationAction(ISD::SHL_PARTS,         MVT::i32,   Expand);
++    setOperationAction(ISD::SRA_PARTS,         MVT::i32,   Expand);
++    setOperationAction(ISD::SRL_PARTS,         MVT::i32,   Expand);
++    setOperationAction(ISD::FSIN,              MVT::f32,   Expand);
++    setOperationAction(ISD::FSIN,              MVT::f64,   Expand);
++    setOperationAction(ISD::FCOS,              MVT::f32,   Expand);
++    setOperationAction(ISD::FCOS,              MVT::f64,   Expand);
++    setOperationAction(ISD::FPOWI,             MVT::f32,   Expand);
++    setOperationAction(ISD::FPOW,              MVT::f32,   Expand);
++    setOperationAction(ISD::FPOW,              MVT::f64,   Expand);
++    setOperationAction(ISD::FLOG,              MVT::f32,   Expand);
++    setOperationAction(ISD::FLOG2,             MVT::f32,   Expand);
++    setOperationAction(ISD::FLOG10,            MVT::f32,   Expand);
++    setOperationAction(ISD::FEXP,              MVT::f32,   Expand);
++    setOperationAction(ISD::FMA,               MVT::f32,   Expand);
++    setOperationAction(ISD::FMA,               MVT::f64,   Expand);
++    setOperationAction(ISD::FREM,              MVT::f32,   Expand);
++    setOperationAction(ISD::FREM,              MVT::f64,   Expand);
++
++    if (!TM.Options.NoNaNsFPMath) {
++      setOperationAction(ISD::FNEG,             MVT::f32,   Expand);
++      setOperationAction(ISD::FNEG,             MVT::f64,   Expand);
++    }
++
++    setOperationAction(ISD::EXCEPTIONADDR,     MVT::i32, Expand);
++    setOperationAction(ISD::EXCEPTIONADDR,     MVT::i64, Expand);
++    setOperationAction(ISD::EHSELECTION,       MVT::i32, Expand);
++    setOperationAction(ISD::EHSELECTION,       MVT::i64, Expand);
++
++    setOperationAction(ISD::VAARG,             MVT::Other, Expand);
++    setOperationAction(ISD::VACOPY,            MVT::Other, Expand);
++    setOperationAction(ISD::VAEND,             MVT::Other, Expand);
++
++    // Use the default for now
++    setOperationAction(ISD::STACKSAVE,         MVT::Other, Expand);
++    setOperationAction(ISD::STACKRESTORE,      MVT::Other, Expand);
++
++    setOperationAction(ISD::ATOMIC_LOAD,       MVT::i32,    Expand);
++    setOperationAction(ISD::ATOMIC_LOAD,       MVT::i64,    Expand);
++    setOperationAction(ISD::ATOMIC_STORE,      MVT::i32,    Expand);
++    setOperationAction(ISD::ATOMIC_STORE,      MVT::i64,    Expand);
++
++    //////
++
++
++    setTargetDAGCombine(ISD::ADDE);
++    setTargetDAGCombine(ISD::SUBE);
++    setTargetDAGCombine(ISD::SDIVREM);
++    setTargetDAGCombine(ISD::UDIVREM);
++    setTargetDAGCombine(ISD::SELECT);
++    setTargetDAGCombine(ISD::AND);
++    setTargetDAGCombine(ISD::OR);
++
+ 
+     setMinFunctionAlignment(2);
+ 
+@@ -120,6 +263,7 @@ static bool CC_Coffee32(unsigned ValNo, MVT ValVT,
+       || State.getFirstUnallocated(F32Regs, FloatRegsSize) != ValNo;
+   unsigned OrigAlign = ArgFlags.getOrigAlign();
+   bool isI64 = (ValVT == MVT::i32 && OrigAlign == 8);*/
++
+ unsigned OrigAlign = ArgFlags.getOrigAlign();
+   bool AllocateFloatsInIntReg = false;
+   bool isI64 = false;
+@@ -295,15 +439,22 @@ CoffeeTargetLowering::LowerFormalArguments(SDValue Chain,
+       }
+     }
+ 
+-    // The mips ABIs for returning structs by value requires that we copy
++    // The coffee ABIs for returning structs by value requires that we copy
+     // the sret argument into $v0 for the return. Save the argument into
+     // a virtual register so that we can access it from the return points.
+     if (DAG.getMachineFunction().getFunction()->hasStructRetAttr()) {
+-        llvm_unreachable("coffee: we don't support return struct for now");
++        unsigned Reg = CoffeeFI->getSRetReturnReg();
++        if (!Reg) {
++          Reg = MF.getRegInfo().createVirtualRegister(getRegClassFor(MVT::i32));
++          CoffeeFI->setSRetReturnReg(Reg);
++        }
++        //guoqing: when a function has return value hasStructRetAttr() is true
++        SDValue Copy = DAG.getCopyToReg(DAG.getEntryNode(), dl, Reg, InVals[0]);
++        Chain = DAG.getNode(ISD::TokenFactor, dl, MVT::Other, Copy, Chain);
+     }
+ 
+     if (isVarArg)
+-        llvm_unreachable("coffee: var arg is not ok");
++        llvm_unreachable("coffee: is var arg");
+ 
+     CoffeeFI->setLastInArgFI(LastFI);
+ 
+@@ -319,6 +470,31 @@ CoffeeTargetLowering::LowerFormalArguments(SDValue Chain,
+   }
+ 
+ 
++SDValue  CoffeeTargetLowering::PerformDAGCombine(SDNode *N, DAGCombinerInfo &DCI)
++  const {
++  SelectionDAG &DAG = DCI.DAG;
++  unsigned opc = N->getOpcode();
++
++  switch (opc) {
++  default: break;
++  case ISD::ADDE:
++  case ISD::SUBE:
++  case ISD::SDIVREM:
++  case ISD::UDIVREM:
++  case ISD::SELECT:
++  case ISD::AND:
++
++  case ISD::OR:
++
++      break;
++  }
++
++  return SDValue();
++}
++
++
++
++
+ 
+ SDValue
+ CoffeeTargetLowering::LowerReturn(SDValue Chain,
+@@ -349,7 +525,6 @@ CoffeeTargetLowering::LowerReturn(SDValue Chain,
+     // Copy the result values into the output registers.
+     for (unsigned i = 0; i != RVLocs.size(); ++i) {
+ 
+-      llvm_unreachable("coffee: copy result to output register! Not fully supported");
+       CCValAssign &VA = RVLocs[i];
+       assert(VA.isRegLoc() && "Can only return in registers!");
+ 
+@@ -361,19 +536,41 @@ CoffeeTargetLowering::LowerReturn(SDValue Chain,
+     }
+ 
+ 
++    if (DAG.getMachineFunction().getFunction()->hasStructRetAttr()) {
++      MachineFunction &MF      = DAG.getMachineFunction();
++      CoffeeFunctionInfo *CoffeeFI = MF.getInfo<CoffeeFunctionInfo>();
++      unsigned Reg = CoffeeFI->getSRetReturnReg();
++
++      if (!Reg)
++        llvm_unreachable("sret virtual register not created in the entry block");
++
++      SDValue Val = DAG.getCopyFromReg(Chain, dl, Reg, getPointerTy());
++
++      Chain = DAG.getCopyToReg(Chain, dl, Coffee::V0, Val, Flag);
++
++
++      Flag = Chain.getValue(1);
++    }
++
+     SDValue result;
+-    if (Flag.getNode())
+-      result = DAG.getNode(COFFEEISD::RET_FLAG, dl, MVT::Other, Chain, Flag);
+-    else // Return Void
+-      result = DAG.getNode(COFFEEISD::RET_FLAG, dl, MVT::Other, Chain);
++    if (Flag.getNode()) {
++        result = DAG.getNode(COFFEEISD::RET, dl, MVT::Other, Chain, DAG.getRegister(Coffee::LR, MVT::i32), Flag);
++
++    } else // Return Void
++      result = DAG.getNode(COFFEEISD::RET, dl, MVT::Other, Chain, DAG.getRegister(Coffee::LR, MVT::i32));
+     return result;
+   }
+ 
+ const char * CoffeeTargetLowering::getTargetNodeName(unsigned Opcode) const {
+     switch (Opcode) {
+     default: return 0;
+-    case COFFEEISD::RET_FLAG:       return "COFFEEISD::RET_FLAG";
++    case COFFEEISD::RET:       return "COFFEEISD::RET";
+     case COFFEEISD::CALL:       return "COFFEEISD::CALL";
++    case COFFEEISD::BRCOND:     return   "COFFEEISD::BRCOND";
++    case COFFEEISD::CMP:        return "COFFEEISD::CMP";
++    case COFFEEISD::Hi:         return "COFFEEISD::Hi";
++    case COFFEEISD::Lo:         return "COFFEEISD::Lo";
++
+     }
+ }
+ 
+@@ -630,33 +827,16 @@ CoffeeTargetLowering::LowerCallResult(SDValue Chain, SDValue InFlag,
+   SmallVector<CCValAssign, 16> RVLocs;
+   CCState CCInfo(CallConv, isVarArg, DAG.getMachineFunction(),
+                     DAG.getTarget(), RVLocs, *DAG.getContext());
+-  CCInfo.AnalyzeCallResult(Ins,
+-                           CCAssignFnForNode(CallConv, /* Return*/ true,
+-                                             isVarArg));
+ 
+-  // Copy all of the result registers out of their specified physreg.
+-  for (unsigned i = 0; i != RVLocs.size(); ++i) {
+-    CCValAssign VA = RVLocs[i];
+ 
+-    SDValue Val;
+-    if (VA.needsCustom()) {
+-        llvm_unreachable("coffee: LowerCallResult");
+-    } else {
+-      Val = DAG.getCopyFromReg(Chain, dl, VA.getLocReg(), VA.getLocVT(),
+-                               InFlag);
+-      Chain = Val.getValue(1);
+-      InFlag = Val.getValue(2);
+-    }
++  CCInfo.AnalyzeCallResult(Ins, RetCC_Coffee);
+ 
+-    switch (VA.getLocInfo()) {
+-    default: llvm_unreachable("Unknown loc info!");
+-    case CCValAssign::Full: break;
+-    case CCValAssign::BCvt:
+-      Val = DAG.getNode(ISD::BITCAST, dl, VA.getValVT(), Val);
+-      break;
+-    }
+-
+-    InVals.push_back(Val);
++  // Copy all of the result registers out of their specified physreg.
++  for (unsigned i = 0; i != RVLocs.size(); ++i) {
++    Chain = DAG.getCopyFromReg(Chain, dl, RVLocs[i].getLocReg(),
++                               RVLocs[i].getValVT(), InFlag).getValue(1);
++    InFlag = Chain.getValue(2);
++    InVals.push_back(Chain.getValue(0));
+   }
+ 
+   return Chain;
+@@ -681,10 +861,97 @@ SDValue CoffeeTargetLowering::LowerFRAMEADDR(SDValue Op, SelectionDAG &DAG) cons
+ }
+ 
+ SDValue CoffeeTargetLowering::LowerOperation(SDValue Op, SelectionDAG &DAG) const {
++
++    //need to recheck this part when we start to implement the float point support
+   switch (Op.getOpcode()) {
+   default: llvm_unreachable("Don't know how to custom lower this!");
+-  case ISD::FRAMEADDR:     return LowerFRAMEADDR(Op, DAG);
++  case ISD::FRAMEADDR:
++  case ISD::BRCOND:
++  case ISD::ConstantPool:
++  case ISD::DYNAMIC_STACKALLOC:
++  case ISD::BlockAddress:
++  case ISD::GlobalTLSAddress:
++  case ISD::JumpTable:
++  case ISD::SELECT:
++  case ISD::SETCC:
++  case ISD::VASTART:
++  case ISD::FCOPYSIGN:
++  case ISD::FABS:
++  case ISD::MEMBARRIER:
++  case ISD::ATOMIC_FENCE:
++      return Op;
++  case ISD::GlobalAddress: return LowerGlobalAddress(Op, DAG);
++  case ISD::BR_CC: return LowerBR_CC(Op, DAG);
++  }
++}
++
++SDValue CoffeeTargetLowering::LowerGlobalAddress(SDValue Op,
++                                                 SelectionDAG &DAG) const {
++    // FIXME there isn't actually debug info here
++    DebugLoc dl = Op.getDebugLoc();
++    const GlobalValue *GV = cast<GlobalAddressSDNode>(Op)->getGlobal();
++
++
++   // SDVTList VTs = DAG.getVTList(MVT::i32);
++
++    CoffeeTargetObjectFile &TLOF = (CoffeeTargetObjectFile&)getObjFileLowering();
+ 
++    //
++    if (TLOF.IsGlobalInSmallSection(GV, getTargetMachine())) {
++        llvm_unreachable("coffee: gobal in small section");
++    }
++    // %hi/%lo relocation
++    SDValue GAHi = DAG.getTargetGlobalAddress(GV, dl, MVT::i32, 0,
++                                              0);
++    SDValue GALo = DAG.getTargetGlobalAddress(GV, dl, MVT::i32, 0,
++                                              0);
++    SDValue HiPart = DAG.getNode(COFFEEISD::Hi, dl, MVT::i32, GAHi);
++
++    return DAG.getNode(COFFEEISD::Lo, dl, MVT::i32, HiPart, GALo);
++
++
++}
+ 
++
++SDValue CoffeeTargetLowering::LowerBR_CC(SDValue Op, SelectionDAG &DAG) const {
++  SDValue Chain = Op.getOperand(0);
++  ISD::CondCode CondCode = cast<CondCodeSDNode>(Op.getOperand(1))->get();
++  SDValue LHS = Op.getOperand(2);
++  SDValue RHS = Op.getOperand(3);
++  SDValue Dest = Op.getOperand(4);
++  DebugLoc dl = Op.getDebugLoc();
++
++  if (LHS.getValueType() == MVT::i32) {
++    SDValue CC = DAG.getConstant(CondCode, MVT::i32);
++    SDValue Cmp = getCoffeeCmp(LHS, RHS, DAG, dl);
++    SDValue CCR = DAG.getRegister(Coffee::CR0, MVT::i32);
++
++    return DAG.getNode(COFFEEISD::BRCOND, dl, MVT::Other,
++                       Chain, Dest, CC, CCR, Cmp);
+   }
++
+ }
++
++
++bool CoffeeTargetLowering::isLegalICmpImmediate(int64_t Imm) const {
++  // we have 16 bits for immediate
++  return Imm >= 0 && Imm <= 65535;
++}
++
++
++SDValue
++CoffeeTargetLowering::getCoffeeCmp(SDValue LHS, SDValue RHS,
++                             SelectionDAG &DAG,
++                             DebugLoc dl) const {
++  if (ConstantSDNode *RHSC = dyn_cast<ConstantSDNode>(RHS.getNode())) {
++    unsigned C = RHSC->getZExtValue();
++    if (!isLegalICmpImmediate(C))
++        llvm_unreachable("coffee: cmp imm doesn't fit");
++  }
++
++  return DAG.getNode(COFFEEISD::CMP, dl, MVT::Glue, LHS, RHS);
++}
++
++
++
++
+diff --git a/lib/Target/Coffee/CoffeeISelLowering.h b/lib/Target/Coffee/CoffeeISelLowering.h
+index 84d878e..fcae232 100644
+--- a/lib/Target/Coffee/CoffeeISelLowering.h
++++ b/lib/Target/Coffee/CoffeeISelLowering.h
+@@ -30,8 +30,12 @@ namespace COFFEEISD {
+ enum NodeType {
+     // Start the numbering where the builtin ops and target ops leave off.
+     FIRST_NUMBER = ISD::BUILTIN_OP_END,
+-    RET_FLAG,     // Return with a flag operand
+-    CALL
++    RET,     // Return with a flag operand
++    CALL,
++    BRCOND,
++    CMP,
++    Hi,
++    Lo
+ };
+ }
+ 
+@@ -90,8 +94,17 @@ public:
+ 
+     SDValue LowerFRAMEADDR(SDValue Op, SelectionDAG &DAG) const;
+ 
++    SDValue LowerBR_CC(SDValue Op, SelectionDAG &DAG) const;
++    SDValue LowerGlobalAddress(SDValue Op,SelectionDAG &DAG) const;
+ 
+     typedef SmallVector<std::pair<unsigned, SDValue>, 8> RegsToPassVector;
++
++    SDValue getCoffeeCmp(SDValue LHS, SDValue RHS, SelectionDAG &DAG,
++                                 DebugLoc dl) const;
++
++    bool isLegalICmpImmediate(int64_t Imm) const;
++
++    virtual SDValue PerformDAGCombine(SDNode *N, DAGCombinerInfo &DCI) const;
+ };
+ }
+ 
+diff --git a/lib/Target/Coffee/CoffeeInstrFormats.td b/lib/Target/Coffee/CoffeeInstrFormats.td
+index 0553d8b..41f0d7e 100644
+--- a/lib/Target/Coffee/CoffeeInstrFormats.td
++++ b/lib/Target/Coffee/CoffeeInstrFormats.td
+@@ -11,33 +11,116 @@
+ //
+ // Coffee instruction formats
+ 
++// Format specifies the encoding used by the instruction.  This is part of the
++// ad-hoc solution used to emit machine instruction encodings by our machine
++// code emitter.
++class Format<bits<4> val> {
++  bits<4> Value = val;
++}
++
++
++def Pseudo    : Format<0>;
++def FrmR      : Format<1>;
++def FrmI      : Format<2>;
++def FrmJ      : Format<3>;
++def FrmFR     : Format<4>;
++def FrmFI     : Format<5>;
++def FrmOther  : Format<6>; // Instruction w/ a custom format
+ 
+-class InstCoffee<bits<6> opcode, dag outs, dag ins, string asmstr, list<dag> pattern> : Instruction {
++
++class InstCoffee<dag outs, dag ins, string asmstr, list<dag> pattern,
++                 InstrItinClass itin, Format f> : Instruction {
+   field bits<32> Inst;
+ 
+   let Namespace = "Coffee";
+-  let Inst{31-26} = opcode;
++
++  let Size = 4;
++
++  bits<6> Opcode = 0;
++
++  let Inst{31-26} = Opcode;
++
+   let OutOperandList = outs;
+   let InOperandList = ins;
+   let AsmString = asmstr;
+   let Pattern = pattern;
++  let Itinerary  = itin;
+ }
+ 
+-// cex is set to 1
+-class InstCoffee_1<bits<6> opcode, bits<3> creg, bits<3> cond, dag outs, dag ins, string asmstr, list<dag> pattern = []>
+-        : InstCoffee<opcode, outs, ins, asmstr, pattern> {
+ 
+-  let Inst{25} = 1;
++class FFI<bits<6> op, dag outs, dag ins, string asmstr, list<dag> pattern>:
++          InstCoffee<outs, ins, asmstr, pattern, NoItinerary, FrmFI>
++{
++}
++
++
++class FR<bits<6> op, dag outs, dag ins, string asmstr,
++         list<dag> pattern, InstrItinClass itin>:
++      InstCoffee<outs, ins, asmstr, pattern, itin, FrmR>
++{
++// to be defined
++}
++
++class FI<bits<6> op, dag outs, dag ins, string asmstr, list<dag> pattern,
++         InstrItinClass itin>: InstCoffee<outs, ins, asmstr, pattern, itin, FrmI>
++{
++// to be defined
++}
++
++
++
++
++class CoffeePseudo<dag outs, dag ins, string asmstr, list<dag> pattern>:
++      InstCoffee<outs, ins, asmstr, pattern, IIPseudo, Pseudo> {
++  let isCodeGenOnly = 1;
++  let isPseudo = 1;
++}
++
++// defintion of instruction format in coffee
++
++class BranchBase<bits<6> op, dag outs, dag ins, string asmstr,
++                  list<dag> pattern, InstrItinClass itin>:
++  InstCoffee<outs, ins, asmstr, pattern, itin, FrmI>
++{
++  bits<3>  creg;
++  bits<22>  imm;
++
++  let Opcode = op;
++
+   let Inst{24-22} = creg;
+-  let Inst{21-19} = cond;
++  let Inst{21-0} = imm;
++
+ }
+ 
++
++class FJ<bits<6> op, dag outs, dag ins, string asmstr, list<dag> pattern,
++         InstrItinClass itin>: InstCoffee<outs, ins, asmstr, pattern, itin, FrmJ>
++{
++  bits<25> addr;
++
++  let Opcode = op;
++
++  let Inst{24-0} = addr;
++}
++
++
++// cex is set to 1
++//class InstCoffee_1<bits<6> opcode, bits<3> creg, bits<3> cond, dag outs, dag ins, string asmstr, list<dag> pattern = []>
++//        : InstCoffee<opcode, outs, ins, asmstr, pattern> {
++
++//  let Inst{25} = 1;
++//  let Inst{24-22} = creg;
++//  let Inst{21-19} = cond;
++//}
++
+ // cex is set to 0
+ class InstCoffee_0<bits<6> opcode, dag outs, dag ins, string asmstr, list<dag> pattern = []>
+-        : InstCoffee<opcode, outs, ins, asmstr, pattern> {
++        : InstCoffee<outs, ins, asmstr, pattern, IIAlu, FrmI> {
++  let Opcode = opcode;
+   let Inst{25} = 0;
+ }
+ 
+ // for pseudo instruction
+ class Pseudo<dag outs, dag ins, string asmstr, list<dag> pattern>
+    : InstCoffee_0<0b000000,outs, ins, asmstr, pattern>;
++
+diff --git a/lib/Target/Coffee/CoffeeInstrInfo.cpp b/lib/Target/Coffee/CoffeeInstrInfo.cpp
+index dc74579..e2b048e 100644
+--- a/lib/Target/Coffee/CoffeeInstrInfo.cpp
++++ b/lib/Target/Coffee/CoffeeInstrInfo.cpp
+@@ -104,7 +104,7 @@ CoffeeInstrInfo::storeRegToStackSlot(MachineBasicBlock &MBB,
+       Opc = Mips::SDC1;
+     else if (RC == Mips::FGR64RegisterClass)
+       Opc = IsN64 ? Mips::SDC164_P8 : Mips::SDC164;*/
+-    Opc = Coffee::STORErm;
++    Opc = Coffee::SW;
+ 
+     assert(Opc && "Register class not handled!");
+     BuildMI(MBB, I, DL, get(Opc)).addReg(SrcReg, getKillRegState(isKill))
+@@ -133,7 +133,7 @@ CoffeeInstrInfo::loadRegFromStackSlot(MachineBasicBlock &MBB,
+     DebugLoc DL;
+     if (I != MBB.end()) DL = I->getDebugLoc();
+     MachineMemOperand *MMO = GetMemOperand(MBB, FI, MachineMemOperand::MOLoad);
+-    unsigned Opc = Coffee::LOADmrnp;
++    unsigned Opc = Coffee::LW;
+ 
+     /*if (RC == Mips::CPURegsRegisterClass)
+       Opc = IsN64 ? Mips::LW_P8 : Mips::LW;
+diff --git a/lib/Target/Coffee/CoffeeInstrInfo.td b/lib/Target/Coffee/CoffeeInstrInfo.td
+index 222edd6b..cc9604b 100644
+--- a/lib/Target/Coffee/CoffeeInstrInfo.td
++++ b/lib/Target/Coffee/CoffeeInstrInfo.td
+@@ -18,21 +18,47 @@ include "CoffeeInstrFormats.td"
+ // Node definition
+ def SDT_COFFEECallSeqStart : SDCallSeqStart<[ SDTCisVT<0, i32> ]>;
+ def SDT_COFFEECallSeqEnd   : SDCallSeqEnd<[ SDTCisVT<0, i32>, SDTCisVT<1, i32> ]>;
++def SDT_COFFEECmp     : SDTypeProfile<0, 2, [SDTCisSameAs<0, 1>]>;
++def SDT_COFFEERet          : SDTypeProfile<0, 1, [SDTCisInt<0>]>;
++//def SDT_COFFEEBrcond  : SDTypeProfile<0, 2,
++//                                   [SDTCisVT<0, OtherVT>, SDTCisVT<1, i32>]>;
++
+ 
+ def callseq_start : SDNode<"ISD::CALLSEQ_START", SDT_COFFEECallSeqStart,
+                            [SDNPHasChain, SDNPOutGlue]>;
++
+ def callseq_end   : SDNode<"ISD::CALLSEQ_END",   SDT_COFFEECallSeqEnd,
+                            [SDNPHasChain, SDNPOptInGlue, SDNPOutGlue]>;
++
+ def SDT_COFFEEcall    : SDTypeProfile<0, -1, [SDTCisPtrTy<0>]>;
+ 
++
+ def COFFEEcall          : SDNode<"COFFEEISD::CALL", SDT_COFFEEcall,
+                               [SDNPHasChain, SDNPOptInGlue, SDNPOutGlue,
+                                SDNPVariadic]>;
+-def COFFEEretflag       : SDNode<"COFFEEISD::RET_FLAG", SDTNone,
++
++def COFFEEret         : SDNode<"COFFEEISD::RET", SDT_COFFEERet,
+                               [SDNPHasChain, SDNPOptInGlue]>;
+ 
+ 
+ 
++
++//def COFFEEbrcond        : SDNode<"COFFEEISD::BRCOND", SDT_COFFEEBrcond,
++//                              [SDNPHasChain, SDNPInGlue]>;
++
++def COFFEEcmp           : SDNode<"COFFEEISD::CMP", SDT_COFFEECmp,
++                              [SDNPOutGlue]>;
++
++def COFFEEHi    : SDNode<"COFFEEISD::Hi", SDTIntUnaryOp>;
++def COFFEELo    : SDNode<"COFFEEISD::Lo", SDTIntBinOp>;
++
++
++def immSExt16  : PatLeaf<(imm), [{ return isInt<16>(N->getSExtValue()); }]>;
++
++def jmptarget   : Operand<OtherVT> {
++ // let EncoderMethod = "getJumpTargetOpValue";
++}
++
+ def LO16 : SDNodeXForm<imm, [{
+   // Transformation function: get the low 16 bits.
+   return getI32Imm((unsigned short)N->getZExtValue());  // unsigned short cast to 16 bit
+@@ -45,8 +71,8 @@ def HI16 : SDNodeXForm<imm, [{
+ 
+ 
+ // Addressing modes.
+-def ADDRrr : ComplexPattern<i32, 2, "SelectADDRrr", [], []>;
+-def ADDRri : ComplexPattern<i32, 2, "SelectADDRri", [frameindex], []>;
++def addr : ComplexPattern<iPTR, 2, "SelectAddr", [frameindex], [SDNPWantParent]>;
++
+ 
+ // Operand definition
+ def bl_target : Operand<i32> {
+@@ -54,15 +80,47 @@ def bl_target : Operand<i32> {
+   let OperandType = "OPERAND_PCREL";
+ }
+ 
++def brtarget    : Operand<OtherVT> {
++  let EncoderMethod = "getBranchTargetOpValue";
++  let OperandType = "OPERAND_PCREL";
++  let DecoderMethod = "DecodeBranchTarget";
++}
++
++
++def simm16      : Operand<i32> {
++  //let DecoderMethod= "DecodeSimm16";
++}
++
++def uimm16      : Operand<i32> {
++}
++
++//guoqing: we use i32 for now, this needs to recheck later
++// to use the right type
+ // Address operands
+ def MEMri : Operand<i32> {
+   let PrintMethod = "printMemOperand";
+-  let MIOperandInfo = (ops GPRC, i32imm);
++  let MIOperandInfo = (ops GPRC, simm16);
+ }
+ 
++/*def mem_ea : Operand<i32> {
++  let PrintMethod = "printMemOperandEA";
++  let MIOperandInfo = (ops GPRC, i32imm);
++  let EncoderMethod = "getMemEncoding";
++}*/
++
++
++// class definition
++
++class FMem<bits<6> op, dag outs, dag ins, string asmstr, list<dag> pattern,
++          InstrItinClass itin>: FFI<op, outs, ins, asmstr, pattern> {
++
++}
+ 
+ // Instruction definition
+ 
++
++
++
+ // arithmetic instructions
+ 
+ def ADDrr : InstCoffee_0<0b000001,
+@@ -81,7 +139,7 @@ def ADDrr : InstCoffee_0<0b000001,
+ def ADDri : InstCoffee_0<0b101101,
+                        (outs GPRC:$Rd),
+                        (ins GPRC:$R1, i32imm:$R2), //we have 15bits
+-                       "addi\t$Rd,\t$R1,\t,$R2",
++                       "addi\t$Rd,\t$R1,\t$R2",
+                        [(set GPRC:$Rd, (add GPRC:$R1, imm:$R2))] > {
+                        bits<15> R2;
+                        bits<5> R1;
+@@ -92,7 +150,7 @@ def ADDri : InstCoffee_0<0b101101,
+                        }
+ 
+ 
+-def ORrr : InstCoffee_0<0b001011, (outs GPRC:$dst), (ins GPRC:$r1, GPRC:$r2),
++/*def ORrr : InstCoffee_0<0b001011, (outs GPRC:$dst), (ins GPRC:$r1, GPRC:$r2),
+                        "or\t$dst,\t$r1,\t$r2",
+                        [(set GPRC:$dst, (or GPRC:$r1, GPRC:$r2))]> {
+                        bits<5> r2;
+@@ -101,7 +159,7 @@ def ORrr : InstCoffee_0<0b001011, (outs GPRC:$dst), (ins GPRC:$r1, GPRC:$r2),
+                        let Inst{14-10} = r2;
+                        let Inst{9-5} = r1;
+                        let Inst{4-0} = dst;
+-                       }
++                       }*/
+ 
+ 
+ def ORri : InstCoffee_0<0b101010, (outs GPRC:$dst), (ins GPRC:$r1, i32imm:$r2),
+@@ -115,18 +173,25 @@ def ORri : InstCoffee_0<0b101010, (outs GPRC:$dst), (ins GPRC:$r1, i32imm:$r2),
+                         let Inst{4-0} = dst;
+                         }
+ 
++
+ //  Control Flow Instructions.
+ 
+-let isReturn = 1, isTerminator = 1, isBarrier = 1 in {
++
++let isReturn=1, isTerminator=1, hasDelaySlot=1, isCodeGenOnly=1,
++    isBarrier=1 in
++  def RET : FR <0b011011, (outs), (ins GPRC:$target),
++                "jmpr\t$target", [(COFFEEret GPRC:$target)], IIBranch>;
++
++/*let isReturn = 1, isTerminator = 1, isBarrier = 1 in {
+   def JMPR_RET : InstCoffee_0<0b011011,
+                        (outs),
+                        (ins),
+                        "jmpr\tlr", [(COFFEEretflag)]> {
+                        let Inst{9-5} = 0b11111;
+                        }
+-}
++}*/
+ 
+-let isCall = 1, Defs = [LR] in {
++let isCall = 1, Defs = [LR], hasDelaySlot=1 in {
+   def JALR_CALL : InstCoffee_0<0b011011,
+                   (outs),
+                   (ins GPRC:$func, variable_ops),
+@@ -148,14 +213,249 @@ let isCall = 1, Defs = [LR] in {
+                   }
+ }
+ 
++// Jump
++class JumpFJ<bits<6> op, string instr_asm>:
++  FJ<op, (outs), (ins jmptarget:$target),
++     !strconcat(instr_asm, "\t$target"), [(br bb:$target)], IIBranch> {
++  let isBranch=1;
++  let isTerminator=1;
++  let isBarrier=1;
++  let hasDelaySlot = 1;
++  let DecoderMethod = "DecodeJumpTarget";
++}
++
++/*class SI<bits<6> op, string instr_asms>:
++    FJ<op, (outs), (ins),
++   instr_asms, [], IIAlu> {}*/
++
++def NOP   : InstCoffee<(outs), (ins), "nop", [], IIAlu, FrmJ> {
++  let Inst{31-26} = 0b111010;
++  let Inst{15-10} = 0b111010;
++  }
++
++
++
++class EffectiveAddress<string instr_asm, RegisterClass RC, Operand Mem> :
++  FMem<0b000000, (outs RC:$rt), (ins Mem:$addr),
++     instr_asm, [(set RC:$rt, addr:$addr)], IIAlu>;
++
++
++
++
++class JumpFR<bits<6> op, string instr_asm, RegisterClass RC>:
++  FR<op, (outs), (ins RC:$rs),
++     !strconcat(instr_asm, "\t$rs"), [(brind RC:$rs)], IIBranch> {
++  let isBranch=1;
++  let isTerminator = 1;
++  let isBarrier = 1;
++  let hasDelaySlot = 1;
++  let isIndirectBranch = 1;
++}
++
++
++
++// SetCC
++class SetCC_R<bits<6> op, string instr_asm, RegisterClass RC>:
++  FR<op, (outs CRRC:$rd), (ins RC:$rs, RC:$rt),
++     !strconcat(instr_asm, "\t$rd, $rs, $rt"),
++     [/*(set CRRC:$rd, (COFFEEcmp RC:$rs, RC:$rt))*/], IIAlu> {}
++
++class SetCC_I<bits<6> op, string instr_asm, Operand Od, RegisterClass RC>:
++  FI<op, (outs CRRC:$rt), (ins RC:$rs, Od:$imm16),
++     !strconcat(instr_asm, "\t$rt, $rs, $imm16"),
++     [/*(set CRRC:$rd, (COFFEEcmp RC:$rs, imm:$rt))*/], IIAlu> {}
++
++
++class CBranch<bits<6> op, string instr_asm, PatFrag cond_op>:
++  BranchBase<op, (outs), (ins CRRC:$creg, brtarget:$imm16),
++             !strconcat(instr_asm, "\t$creg, $imm16"),
++             [], IIBranch> {
++  let isBranch = 1;
++  let isTerminator = 1;
++  let hasDelaySlot = 1;
++}
++
++def JMP       : JumpFJ<0b000000, "jmp">;
++def JMPR      : JumpFR<0b000000, "jmpr", GPRC>;
++//def JAL       : JumpLink<0b000000, "jal">;
++//def JALR      : JumpLinkReg<0b000000, "jalr", GPRC>;
++
++def BEGT    :  CBranch<0b000000, "begt", setge>;
++def BELT    :  CBranch<0b000000, "belt", setle>;
++def BEQ     :  CBranch<0b000000, "beq", seteq>;
++def BGT     :  CBranch<0b000000, "bgt", setgt>;
++def BLT     :  CBranch<0b000000, "blt", setlt>;
++def BNE     :  CBranch<0b000000, "bne", setne>;
++
++//def NOP     :  SI<0b111010, "nop">;
++
++//def CMPi    : SetCC_I<0b000000, "cmpi", simm16, GPRC>;
++//def CMPr     : SetCC_R<0b000000, "cmp", GPRC>;
++
++
++let isCompare = 1, Defs = [CR0] in {
++multiclass I_cmp<PatFrag opnode> {
++  def ri : InstCoffee<(outs), (ins GPRC:$Rn, simm16:$imm),
++               "cmpi\t$Rn, $imm", [(opnode GPRC:$Rn, imm:$imm)], IIAlu, FrmI> {}
++  def rr : InstCoffee<(outs), (ins GPRC:$Rn, GPRC:$Rm),
++               "cmp\t$Rn, $Rm", [(opnode GPRC:$Rn, GPRC:$Rm)], IIAlu, FrmI> {}
++}
++}
++
++class BinOpFrag<dag res> : PatFrag<(ops node:$LHS, node:$RHS), res>;
++
++defm CMP :  I_cmp <BinOpFrag<(COFFEEcmp node:$LHS, node:$RHS)>>;
++
++
++// brcond patterns
++
++// != imm
++def : Pat<(brcond (i32 (setne GPRC:$lhs, immSExt16:$rhs)), bb:$dst),
++          (BNE (CMPri GPRC:$lhs, immSExt16:$rhs), bb:$dst)>;
++
++// == imm
++def : Pat<(brcond (i32 (seteq GPRC:$lhs, immSExt16:$rhs)), bb:$dst),
++          (BEQ (CMPri GPRC:$lhs, immSExt16:$rhs), bb:$dst)>;
++
++// != reg
++def : Pat<(brcond (i32 (setne GPRC:$lhs, GPRC:$rhs)), bb:$dst),
++          (BNE (CMPrr GPRC:$lhs, GPRC:$rhs), bb:$dst)>;
++// == reg
++def : Pat<(brcond (i32 (seteq GPRC:$lhs, GPRC:$rhs)), bb:$dst),
++          (BEQ (CMPrr GPRC:$lhs, GPRC:$rhs), bb:$dst)>;
++
++// >= reg
++def : Pat<(brcond (i32 (setge GPRC:$lhs, GPRC:$rhs)), bb:$dst),
++          (BGT (CMPrr GPRC:$lhs, GPRC:$rhs), bb:$dst)>;
++
++// >= imm
++def : Pat<(brcond (i32 (setge GPRC:$lhs, immSExt16:$rhs)), bb:$dst),
++          (BGT (CMPri GPRC:$lhs, immSExt16:$rhs), bb:$dst)>;
++
++// <= reg
++def : Pat<(brcond (i32 (setle GPRC:$lhs, GPRC:$rhs)), bb:$dst),
++          (BELT (CMPrr GPRC:$rhs, GPRC:$lhs), bb:$dst)>;
++// <= imm
++def : Pat<(brcond (i32 (setle GPRC:$lhs, immSExt16:$rhs)), bb:$dst),
++          (BELT (CMPri GPRC:$rhs, immSExt16:$lhs), bb:$dst)>;
++
++// > reg
++def : Pat<(brcond (i32 (setge GPRC:$lhs, GPRC:$rhs)), bb:$dst),
++          (BGT (CMPrr GPRC:$lhs, GPRC:$rhs), bb:$dst)>;
++
++// > imm
++def : Pat<(brcond (i32 (setge GPRC:$lhs, immSExt16:$rhs)), bb:$dst),
++          (BGT (CMPri GPRC:$lhs, immSExt16:$rhs), bb:$dst)>;
++
++// < reg
++def : Pat<(brcond (i32 (setlt GPRC:$lhs, GPRC:$rhs)), bb:$dst),
++          (BLT (CMPrr GPRC:$rhs, GPRC:$lhs), bb:$dst)>;
++// < imm
++def : Pat<(brcond (i32 (setlt GPRC:$lhs, immSExt16:$rhs)), bb:$dst),
++          (BLT (CMPri GPRC:$rhs, immSExt16:$lhs), bb:$dst)>;
++
++
++def : Pat<(brcond GPRC:$cond, bb:$dst),
++          (BNE (CMPri GPRC:$cond, 0), bb:$dst)>;
++
++
++// class for load & store
++
++class AlignedLoad<PatFrag Node> :
++  PatFrag<(ops node:$ptr), (Node node:$ptr), [{
++  LoadSDNode *LD = cast<LoadSDNode>(N);
++  return LD->getMemoryVT().getSizeInBits()/8 <= LD->getAlignment();
++}]>;
++
++class AlignedStore<PatFrag Node> :
++  PatFrag<(ops node:$val, node:$ptr), (Node node:$val, node:$ptr), [{
++  StoreSDNode *SD = cast<StoreSDNode>(N);
++  return SD->getMemoryVT().getSizeInBits()/8 <= SD->getAlignment();
++}]>;
++
++
++// load & store patfrags
++def sextloadi16_a   : AlignedLoad<sextloadi16>;
++def zextloadi16_a   : AlignedLoad<zextloadi16>;
++def extloadi16_a    : AlignedLoad<extloadi16>;
++def load_a          : AlignedLoad<load>;
++def sextloadi32_a   : AlignedLoad<sextloadi32>;
++def zextloadi32_a   : AlignedLoad<zextloadi32>;
++def extloadi32_a    : AlignedLoad<extloadi32>;
++def truncstorei16_a : AlignedStore<truncstorei16>;
++def store_a         : AlignedStore<store>;
++def truncstorei32_a : AlignedStore<truncstorei32>;
++
++
++
++
+ //load & store instruction
+ 
++// Memory Load/Store
++let canFoldAsLoad = 1 in
++class LoadM<bits<6> op, string instr_asm, PatFrag OpNode, RegisterClass RC,
++            Operand MemOpnd, bit Pseudo>:
++  FMem<op, (outs RC:$rt), (ins MemOpnd:$addr),
++     !strconcat(instr_asm, "\t$rt,\t$addr"),
++     [(set RC:$rt, (OpNode addr:$addr))], IILoad> {
++  let isPseudo = Pseudo;
++}
++
++class StoreM<bits<6> op, string instr_asm, PatFrag OpNode, RegisterClass RC,
++             Operand MemOpnd, bit Pseudo>:
++  FMem<op, (outs), (ins RC:$rt, MemOpnd:$addr),
++     !strconcat(instr_asm, "\t$rt,\t$addr"),
++     [(OpNode RC:$rt, addr:$addr)], IIStore> {
++  let isPseudo = Pseudo;
++}
++
++
++// Arithmetic and logical instructions with 2 register operands.
++class ArithLogicI<bits<6> op, string instr_asm, SDNode OpNode,
++                  Operand Od, PatLeaf imm_type, RegisterClass RC> :
++  FI<op, (outs RC:$rt), (ins RC:$rs, Od:$imm16),
++     !strconcat(instr_asm, "\t$rt, $rs, $imm16"),
++     [(set RC:$rt, (OpNode RC:$rs, imm_type:$imm16))], IIAlu> {
++  let isReMaterializable = 1;
++}
++
++
++// Load Upper Imediate
++class LoadUpper<bits<6> op, string instr_asm, RegisterClass RC, Operand Imm>:
++  FI<op, (outs RC:$rt), (ins Imm:$imm16),
++     !strconcat(instr_asm, "\t$rt, $imm16"), [], IIAlu> {
++
++  let neverHasSideEffects = 1;
++  let isReMaterializable = 1;
++}
++
++
++def immZExt16  : PatLeaf<(imm), [{return (uint32_t)N->getZExtValue() == (unsigned short)N->getZExtValue();}], LO16>;
++
++// Arithmetic Instruction
++def ORi     : ArithLogicI<0b000000, "ori", or, uimm16, immZExt16, GPRC>;
++def LUi     : LoadUpper<0b000000, "lui", GPRC, uimm16>;
++
++/// Load and Store Instructions
++///  aligned
++
++// these are pesudo instruction
++def LB      : LoadM<0x00, "lb",  sextloadi8, GPRC, MEMri, 1>;
++def LBu     : LoadM<0x00, "lbu", zextloadi8,  GPRC, MEMri, 1>;
++def LH      : LoadM<0x00, "lh",  sextloadi16_a,  GPRC, MEMri, 1>;
++def LHu     : LoadM<0x00, "lhu", zextloadi16_a,  GPRC, MEMri, 1>;
++def LW      : LoadM<0x00, "lw",  load_a,  GPRC, MEMri, 1>;
++def SB      : StoreM<0x00, "sb", truncstorei8,  GPRC, MEMri, 1>;
++def SH      : StoreM<0x00, "sh", truncstorei16_a,  GPRC, MEMri, 1>;
++def SW      : StoreM<0x00, "sw", store_a,  GPRC, MEMri, 1>;
++
++
++
+ //load lower half, no pattern, use for store constant to a register
+-def Loadlinp : InstCoffee_0<0b111110,
+-                         (outs GPRC:$dst),
++def Loadlinp : InstCoffee<(outs GPRC:$dst),
+                          (ins i32imm:$src),
+                          "lli\t$dst,\t$src",
+-                         []> {
++                         [], IILoad, FrmFI> {
+                          bits<15> imm;
+                          bits<5> dst;
+                          bits<1> msb;
+@@ -165,15 +465,11 @@ def Loadlinp : InstCoffee_0<0b111110,
+                          }
+ 
+ 
+-
+-
+-
+ // load upper half, no patern, use for store constant to a register
+-def Loaduinp : InstCoffee_0<0b111111,
+-                         (outs GPRC:$dst),
++def Loaduinp : InstCoffee<(outs GPRC:$dst),
+                          (ins i32imm:$src),
+                          "lui\t$dst,\t$src",
+-                         []> {
++                         [], IIStore, FrmFI> {
+                          bits<15> imm;
+                          bits<5> dst;
+                          bits<1> msb;
+@@ -182,58 +478,31 @@ def Loaduinp : InstCoffee_0<0b111111,
+                          let Inst{4-0} = dst;
+                          }
+ 
+-
+-def STORErr  : InstCoffee_0<0b110100,
+-                 (outs), (ins MEMri:$addr, GPRC:$src),
+-                 "st\t$src,\t$addr",
+-                 [(store GPRC:$src, ADDRrr:$addr)]> {
+-                 bits<5> R1;
+-                 bits<5> R2;
+-                 let Inst{24-15} = 0b0000000000;
+-                 let Inst{4-0} = 0b00000;
+-                 let Inst{14-10} = R2;
+-                 let Inst{9-5} = R1;
+-                 }
+-
+-
+-//def LOADrr  : InstCoffee_0<0b110100,
+-//                 (outs), (ins MEMri:$addr, GPRC:$src),
+-//                 "ld\t$src,\t$addr",
+-//                 [(load GPRC:$src, ADDRrr:$addr)]> {
+-//                 bits<5> R1;
+-//                 bits<5> R2;
+-//                 let Inst{24-15} = 0b0000000000;
+-//                 let Inst{4-0} = 0b00000;
+-//                 let Inst{14-10} = R2;
+-//                 let Inst{9-5} = R1;
+-//                 }
+-
+-
+ //store from register to memory
+-def STORErm : InstCoffee_0<0b110100,
++/*def STORErm : InstCoffee_0<0b110100,
+                  (outs), (ins GPRC:$src, MEMri:$addr),
+                  "st\t$src,\t$addr",
+-                 [(store GPRC:$src, ADDRri:$addr)]> {
++                 [(store GPRC:$src, addr:$addr)]> {
+                  // dummy
+                  }
+ 
+ // load from memory to register
+-def LOADmr  : InstCoffee_0<0b110010,
+-                 (outs GPRC:$dst), (ins MEMri:$addr),
+-                 "ld\t$dst,\t$addr",
+-                 [(set GPRC:$dst, (load ADDRri:$addr))]> {
++//def LOADmr  : InstCoffee_0<0b110010,
++//                 (outs GPRC:$dst), (ins MEMri:$addr),
++//                 "ld\t$dst,\t$addr",
++//                 [(set GPRC:$dst, (load addr:$addr))]> {
+ 
+                  //dummy
+-                 }
++                 }*/
+ 
+ // load no pattern, used directly from emitPopInstr in CoffeeFrameLowering.cpp
+-def LOADmrnp  : InstCoffee_0<0b110010,
+-                 (outs), (ins GPRC:$dst, MEMri:$addr),
+-                 "ld\t$dst,\t$addr",
+-                 []> {
++//def LOADmrnp  : InstCoffee_0<0b110010,
++//                 (outs), (ins GPRC:$dst, MEMri:$addr),
++//                 "ld\t$dst,\t$addr",
++//                 []> {
+ 
+                  //dummy
+-                 }
++//                 }
+ 
+ 
+ // pseudo instruction definition
+@@ -249,14 +518,40 @@ def ADJCALLSTACKUP : Pseudo<(outs), (ins i32imm:$amt1, i32imm:$amt2),
+ 
+ // immediates definition
+ 
+-def simm16  : PatLeaf<(imm), [{ return isInt<16>(N->getSExtValue()); }]>;
+-def : Pat<(i32 simm16:$val),
++def : Pat<(i32 immSExt16:$val),
+           (Loadlinp (LO16 imm:$val))>;
+ 
+ // big immediates
+ def : Pat<(i32 imm:$val),
+           (ORri (Loaduinp (HI16 imm:$val)), (LO16 imm:$val))>;
+ 
++// global address
++def : Pat<(i32 tglobaladdr:$val),
++          (ORri (Loaduinp (HI16 imm:$val)), (LO16 imm:$val))>;
++
++
++// FrameIndexes are legalized when they are operands from load/store
++// instructions. The same not happens for stack address copies, so an
++// add op with mem ComplexPattern is used and the stack address copy
++// can be matched. It's similar to Sparc LEA_ADDRi
++def LEA_ADDiu : EffectiveAddress<"addiu\t$rt,\t$addr", GPRC, MEMri> {
++  let isCodeGenOnly = 1;
++}
++
++// DynAlloc node points to dynamically allocated stack space.
++// $sp is added to the list of implicitly used registers to prevent dead code
++// elimination from removing instructions that modify $sp.
++let Uses = [SP] in
++def DynAlloc : EffectiveAddress<"addiu\t$rt,\t$addr", GPRC, MEMri> {
++  let isCodeGenOnly = 1;
++}
++
++//hi/lo relocs
++
++def : Pat<(COFFEEHi tglobaladdr:$in), (LUi tglobaladdr:$in)>;
++
++
++def : Pat<(COFFEELo GPRC:$src, tglobaladdr:$in), (ORi GPRC:$src, tglobaladdr:$in)>;
+ 
+ 
+ 
+diff --git a/lib/Target/Coffee/CoffeeMachineFunctionInfo.h b/lib/Target/Coffee/CoffeeMachineFunctionInfo.h
+index aa3671a..0dc33e5 100644
+--- a/lib/Target/Coffee/CoffeeMachineFunctionInfo.h
++++ b/lib/Target/Coffee/CoffeeMachineFunctionInfo.h
+@@ -108,6 +108,7 @@ class CoffeeFunctionInfo : public MachineFunctionInfo {
+     mutable int DynAllocFI;
+     unsigned MaxCallFrameSize;
+     MachineFunction& MF;
++    unsigned SRetReturnReg;
+   public:
+     CoffeeFunctionInfo(MachineFunction& MF) :
+       MF(MF),
+@@ -119,7 +120,7 @@ class CoffeeFunctionInfo : public MachineFunctionInfo {
+       NumAlignedDPRCS2Regs(0),
+       JumpTableUId(0), PICLabelUId(0),
+       VarArgsFrameIndex(0), HasITBlocks(false), InArgFIRange(std::make_pair(-1, 0)),
+-        OutArgFIRange(std::make_pair(-1, 0)), DynAllocFI(0), MaxCallFrameSize(0) {}
++        OutArgFIRange(std::make_pair(-1, 0)), DynAllocFI(0), MaxCallFrameSize(0), SRetReturnReg(0) {}
+ 
+    /* explicit CoffeeFunctionInfo(MachineFunction &MF) :
+          MF(MF),
+@@ -294,6 +295,10 @@ class CoffeeFunctionInfo : public MachineFunctionInfo {
+ 
+     unsigned getMaxCallFrameSize() const { return MaxCallFrameSize; }
+     void setMaxCallFrameSize(unsigned S) { MaxCallFrameSize = S; }
++
++
++    unsigned getSRetReturnReg() const { return SRetReturnReg; }
++    void setSRetReturnReg(unsigned Reg) { SRetReturnReg = Reg; }
+   };
+ 
+ } // end of namespace llvm
+diff --git a/lib/Target/Coffee/CoffeeSchedule.td b/lib/Target/Coffee/CoffeeSchedule.td
+index 46ddfa7..8bc5af1 100644
+--- a/lib/Target/Coffee/CoffeeSchedule.td
++++ b/lib/Target/Coffee/CoffeeSchedule.td
+@@ -7,502 +7,55 @@
+ //
+ //===----------------------------------------------------------------------===//
+ 
+-//===----------------------------------------------------------------------===//
+-// Functional units across Coffee chips sets
+-//
+-def BPU    : FuncUnit; // Branch unit
+-def SLU    : FuncUnit; // Store/load unit
+-def SRU    : FuncUnit; // special register unit
+-def IU1    : FuncUnit; // integer unit 1 (simple)
+-def IU2    : FuncUnit; // integer unit 2 (complex)
+-def FPU1   : FuncUnit; // floating point unit 1
+-def FPU2   : FuncUnit; // floating point unit 2
+-def VPU    : FuncUnit; // vector permutation unit
+-def VIU1   : FuncUnit; // vector integer unit 1 (simple)
+-def VIU2   : FuncUnit; // vector integer unit 2 (complex)
+-def VFPU   : FuncUnit; // vector floating point unit
++
++def ALU     : FuncUnit;
++def IMULDIV : FuncUnit;
+ 
+ //===----------------------------------------------------------------------===//
+ // Instruction Itinerary classes used for Coffee
+-//
+-def IntGeneral   : InstrItinClass;
+-def IntCompare   : InstrItinClass;
+-def IntDivD      : InstrItinClass;
+-def IntDivW      : InstrItinClass;
+-def IntMFFS      : InstrItinClass;
+-def IntMFVSCR    : InstrItinClass;
+-def IntMTFSB0    : InstrItinClass;
+-def IntMTSRD     : InstrItinClass;
+-def IntMulHD     : InstrItinClass;
+-def IntMulHW     : InstrItinClass;
+-def IntMulHWU    : InstrItinClass;
+-def IntMulLI     : InstrItinClass;
+-def IntRFID      : InstrItinClass;
+-def IntRotateD   : InstrItinClass;
+-def IntRotate    : InstrItinClass;
+-def IntShift     : InstrItinClass;
+-def IntTrapD     : InstrItinClass;
+-def IntTrapW     : InstrItinClass;
+-def BrB          : InstrItinClass;
+-def BrCR         : InstrItinClass;
+-def BrMCR        : InstrItinClass;
+-def BrMCRX       : InstrItinClass;
+-def LdStDCBA     : InstrItinClass;
+-def LdStDCBF     : InstrItinClass;
+-def LdStDCBI     : InstrItinClass;
+-def LdStLoad     : InstrItinClass;
+-def LdStStore    : InstrItinClass;
+-def LdStDSS      : InstrItinClass;
+-def LdStICBI     : InstrItinClass;
+-def LdStUX       : InstrItinClass;
+-def LdStLD       : InstrItinClass;
+-def LdStLDARX    : InstrItinClass;
+-def LdStLFD      : InstrItinClass;
+-def LdStLFDU     : InstrItinClass;
+-def LdStLHA      : InstrItinClass;
+-def LdStLMW      : InstrItinClass;
+-def LdStLVecX    : InstrItinClass;
+-def LdStLWA      : InstrItinClass;
+-def LdStLWARX    : InstrItinClass;
+-def LdStSLBIA    : InstrItinClass;
+-def LdStSLBIE    : InstrItinClass;
+-def LdStSTD      : InstrItinClass;
+-def LdStSTDCX    : InstrItinClass;
+-def LdStSTVEBX   : InstrItinClass;
+-def LdStSTWCX    : InstrItinClass;
+-def LdStSync     : InstrItinClass;
+-def SprISYNC     : InstrItinClass;
+-def SprMFSR      : InstrItinClass;
+-def SprMTMSR     : InstrItinClass;
+-def SprMTSR      : InstrItinClass;
+-def SprTLBSYNC   : InstrItinClass;
+-def SprMFCR      : InstrItinClass;
+-def SprMFMSR     : InstrItinClass;
+-def SprMFSPR     : InstrItinClass;
+-def SprMFTB      : InstrItinClass;
+-def SprMTSPR     : InstrItinClass;
+-def SprMTSRIN    : InstrItinClass;
+-def SprRFI       : InstrItinClass;
+-def SprSC        : InstrItinClass;
+-def FPGeneral    : InstrItinClass;
+-def FPCompare    : InstrItinClass;
+-def FPDivD       : InstrItinClass;
+-def FPDivS       : InstrItinClass;
+-def FPFused      : InstrItinClass;
+-def FPRes        : InstrItinClass;
+-def FPSqrt       : InstrItinClass;
+-def VecGeneral   : InstrItinClass;
+-def VecFP        : InstrItinClass;
+-def VecFPCompare : InstrItinClass;
+-def VecComplex   : InstrItinClass;
+-def VecPerm      : InstrItinClass;
+-def VecFPRound   : InstrItinClass;
+-def VecVSL       : InstrItinClass;
+-def VecVSR       : InstrItinClass;
+-
+ //===----------------------------------------------------------------------===//
+-// Processor instruction itineraries.
+-
+-include "CoffeeScheduleG3.td"
+-include "CoffeeSchedule440.td"
+-include "CoffeeScheduleG4.td"
+-include "CoffeeScheduleG4Plus.td"
+-include "CoffeeScheduleG5.td"
+-include "CoffeeScheduleA2.td"
++def IIAlu              : InstrItinClass;
++def IILoad             : InstrItinClass;
++def IIStore            : InstrItinClass;
++def IIXfer             : InstrItinClass;
++def IIBranch           : InstrItinClass;
++def IIHiLo             : InstrItinClass;
++def IIImul             : InstrItinClass;
++def IIIdiv             : InstrItinClass;
++def IIFcvt             : InstrItinClass;
++def IIFmove            : InstrItinClass;
++def IIFcmp             : InstrItinClass;
++def IIFadd             : InstrItinClass;
++def IIFmulSingle       : InstrItinClass;
++def IIFmulDouble       : InstrItinClass;
++def IIFdivSingle       : InstrItinClass;
++def IIFdivDouble       : InstrItinClass;
++def IIFsqrtSingle      : InstrItinClass;
++def IIFsqrtDouble      : InstrItinClass;
++def IIFrecipFsqrtStep  : InstrItinClass;
++def IIPseudo           : InstrItinClass;
+ 
+ //===----------------------------------------------------------------------===//
+-// Instruction to itinerary class map - When add new opcodes to the supported
+-// set, refer to the following table to determine which itinerary class the
+-// opcode belongs.
+-//
+-//    opcode     itinerary class
+-//    ======     ===============
+-//    add        IntGeneral
+-//    addc       IntGeneral
+-//    adde       IntGeneral
+-//    addi       IntGeneral
+-//    addic      IntGeneral
+-//    addic.     IntGeneral
+-//    addis      IntGeneral
+-//    addme      IntGeneral
+-//    addze      IntGeneral
+-//    and        IntGeneral
+-//    andc       IntGeneral
+-//    andi.      IntGeneral
+-//    andis.     IntGeneral
+-//    b          BrB
+-//    bc         BrB
+-//    bcctr      BrB
+-//    bclr       BrB
+-//    cmp        IntCompare
+-//    cmpi       IntCompare
+-//    cmpl       IntCompare
+-//    cmpli      IntCompare
+-//    cntlzd     IntRotateD
+-//    cntlzw     IntGeneral
+-//    crand      BrCR
+-//    crandc     BrCR
+-//    creqv      BrCR
+-//    crnand     BrCR
+-//    crnor      BrCR
+-//    cror       BrCR
+-//    crorc      BrCR
+-//    crxor      BrCR
+-//    dcba       LdStDCBA
+-//    dcbf       LdStDCBF
+-//    dcbi       LdStDCBI
+-//    dcbst      LdStDCBF
+-//    dcbt       LdStLoad
+-//    dcbtst     LdStLoad
+-//    dcbz       LdStDCBF
+-//    divd       IntDivD
+-//    divdu      IntDivD
+-//    divw       IntDivW
+-//    divwu      IntDivW
+-//    dss        LdStDSS
+-//    dst        LdStDSS
+-//    dstst      LdStDSS
+-//    eciwx      LdStLoad
+-//    ecowx      LdStLoad
+-//    eieio      LdStLoad
+-//    eqv        IntGeneral
+-//    extsb      IntGeneral
+-//    extsh      IntGeneral
+-//    extsw      IntRotateD
+-//    fabs       FPGeneral
+-//    fadd       FPGeneral
+-//    fadds      FPGeneral
+-//    fcfid      FPGeneral
+-//    fcmpo      FPCompare
+-//    fcmpu      FPCompare
+-//    fctid      FPGeneral
+-//    fctidz     FPGeneral
+-//    fctiw      FPGeneral
+-//    fctiwz     FPGeneral
+-//    fdiv       FPDivD
+-//    fdivs      FPDivS
+-//    fmadd      FPFused
+-//    fmadds     FPGeneral
+-//    fmr        FPGeneral
+-//    fmsub      FPFused
+-//    fmsubs     FPGeneral
+-//    fmul       FPFused
+-//    fmuls      FPGeneral
+-//    fnabs      FPGeneral
+-//    fneg       FPGeneral
+-//    fnmadd     FPFused
+-//    fnmadds    FPGeneral
+-//    fnmsub     FPFused
+-//    fnmsubs    FPGeneral
+-//    fres       FPRes
+-//    frsp       FPGeneral
+-//    frsqrte    FPGeneral
+-//    fsel       FPGeneral
+-//    fsqrt      FPSqrt
+-//    fsqrts     FPSqrt
+-//    fsub       FPGeneral
+-//    fsubs      FPGeneral
+-//    icbi       LdStICBI
+-//    isync      SprISYNC
+-//    lbz        LdStLoad
+-//    lbzu       LdStLoad
+-//    lbzux      LdStUX
+-//    lbzx       LdStLoad
+-//    ld         LdStLD
+-//    ldarx      LdStLDARX
+-//    ldu        LdStLD
+-//    ldux       LdStLD
+-//    ldx        LdStLD
+-//    lfd        LdStLFD
+-//    lfdu       LdStLFDU
+-//    lfdux      LdStLFDU
+-//    lfdx       LdStLFDU
+-//    lfs        LdStLFDU
+-//    lfsu       LdStLFDU
+-//    lfsux      LdStLFDU
+-//    lfsx       LdStLFDU
+-//    lha        LdStLHA
+-//    lhau       LdStLHA
+-//    lhaux      LdStLHA
+-//    lhax       LdStLHA
+-//    lhbrx      LdStLoad
+-//    lhz        LdStLoad
+-//    lhzu       LdStLoad
+-//    lhzux      LdStUX
+-//    lhzx       LdStLoad
+-//    lmw        LdStLMW
+-//    lswi       LdStLMW
+-//    lswx       LdStLMW
+-//    lvebx      LdStLVecX
+-//    lvehx      LdStLVecX
+-//    lvewx      LdStLVecX
+-//    lvsl       LdStLVecX
+-//    lvsr       LdStLVecX
+-//    lvx        LdStLVecX
+-//    lvxl       LdStLVecX
+-//    lwa        LdStLWA
+-//    lwarx      LdStLWARX
+-//    lwaux      LdStLHA
+-//    lwax       LdStLHA
+-//    lwbrx      LdStLoad
+-//    lwz        LdStLoad
+-//    lwzu       LdStLoad
+-//    lwzux      LdStUX
+-//    lwzx       LdStLoad
+-//    mcrf       BrMCR
+-//    mcrfs      FPGeneral
+-//    mcrxr      BrMCRX
+-//    mfcr       SprMFCR
+-//    mffs       IntMFFS
+-//    mfmsr      SprMFMSR
+-//    mfspr      SprMFSPR
+-//    mfsr       SprMFSR
+-//    mfsrin     SprMFSR
+-//    mftb       SprMFTB
+-//    mfvscr     IntMFVSCR
+-//    mtcrf      BrMCRX
+-//    mtfsb0     IntMTFSB0
+-//    mtfsb1     IntMTFSB0
+-//    mtfsf      IntMTFSB0
+-//    mtfsfi     IntMTFSB0
+-//    mtmsr      SprMTMSR
+-//    mtmsrd     LdStLD
+-//    mtspr      SprMTSPR
+-//    mtsr       SprMTSR
+-//    mtsrd      IntMTSRD
+-//    mtsrdin    IntMTSRD
+-//    mtsrin     SprMTSRIN
+-//    mtvscr     IntMFVSCR
+-//    mulhd      IntMulHD
+-//    mulhdu     IntMulHD
+-//    mulhw      IntMulHW
+-//    mulhwu     IntMulHWU
+-//    mulld      IntMulHD
+-//    mulli      IntMulLI
+-//    mullw      IntMulHW
+-//    nand       IntGeneral
+-//    neg        IntGeneral
+-//    nor        IntGeneral
+-//    or         IntGeneral
+-//    orc        IntGeneral
+-//    ori        IntGeneral
+-//    oris       IntGeneral
+-//    rfi        SprRFI
+-//    rfid       IntRFID
+-//    rldcl      IntRotateD
+-//    rldcr      IntRotateD
+-//    rldic      IntRotateD
+-//    rldicl     IntRotateD
+-//    rldicr     IntRotateD
+-//    rldimi     IntRotateD
+-//    rlwimi     IntRotate
+-//    rlwinm     IntGeneral
+-//    rlwnm      IntGeneral
+-//    sc         SprSC
+-//    slbia      LdStSLBIA
+-//    slbie      LdStSLBIE
+-//    sld        IntRotateD
+-//    slw        IntGeneral
+-//    srad       IntRotateD
+-//    sradi      IntRotateD
+-//    sraw       IntShift
+-//    srawi      IntShift
+-//    srd        IntRotateD
+-//    srw        IntGeneral
+-//    stb        LdStStore
+-//    stbu       LdStStore
+-//    stbux      LdStStore
+-//    stbx       LdStStore
+-//    std        LdStSTD
+-//    stdcx.     LdStSTDCX
+-//    stdu       LdStSTD
+-//    stdux      LdStSTD
+-//    stdx       LdStSTD
+-//    stfd       LdStUX
+-//    stfdu      LdStUX
+-//    stfdux     LdStUX
+-//    stfdx      LdStUX
+-//    stfiwx     LdStUX
+-//    stfs       LdStUX
+-//    stfsu      LdStUX
+-//    stfsux     LdStUX
+-//    stfsx      LdStUX
+-//    sth        LdStStore
+-//    sthbrx     LdStStore
+-//    sthu       LdStStore
+-//    sthux      LdStStore
+-//    sthx       LdStStore
+-//    stmw       LdStLMW
+-//    stswi      LdStLMW
+-//    stswx      LdStLMW
+-//    stvebx     LdStSTVEBX
+-//    stvehx     LdStSTVEBX
+-//    stvewx     LdStSTVEBX
+-//    stvx       LdStSTVEBX
+-//    stvxl      LdStSTVEBX
+-//    stw        LdStStore
+-//    stwbrx     LdStStore
+-//    stwcx.     LdStSTWCX
+-//    stwu       LdStStore
+-//    stwux      LdStStore
+-//    stwx       LdStStore
+-//    subf       IntGeneral
+-//    subfc      IntGeneral
+-//    subfe      IntGeneral
+-//    subfic     IntGeneral
+-//    subfme     IntGeneral
+-//    subfze     IntGeneral
+-//    sync       LdStSync
+-//    td         IntTrapD
+-//    tdi        IntTrapD
+-//    tlbia      LdStSLBIA
+-//    tlbie      LdStDCBF
+-//    tlbsync    SprTLBSYNC
+-//    tw         IntTrapW
+-//    twi        IntTrapW
+-//    vaddcuw    VecGeneral
+-//    vaddfp     VecFP
+-//    vaddsbs    VecGeneral
+-//    vaddshs    VecGeneral
+-//    vaddsws    VecGeneral
+-//    vaddubm    VecGeneral
+-//    vaddubs    VecGeneral
+-//    vadduhm    VecGeneral
+-//    vadduhs    VecGeneral
+-//    vadduwm    VecGeneral
+-//    vadduws    VecGeneral
+-//    vand       VecGeneral
+-//    vandc      VecGeneral
+-//    vavgsb     VecGeneral
+-//    vavgsh     VecGeneral
+-//    vavgsw     VecGeneral
+-//    vavgub     VecGeneral
+-//    vavguh     VecGeneral
+-//    vavguw     VecGeneral
+-//    vcfsx      VecFP
+-//    vcfux      VecFP
+-//    vcmpbfp    VecFPCompare
+-//    vcmpeqfp   VecFPCompare
+-//    vcmpequb   VecGeneral
+-//    vcmpequh   VecGeneral
+-//    vcmpequw   VecGeneral
+-//    vcmpgefp   VecFPCompare
+-//    vcmpgtfp   VecFPCompare
+-//    vcmpgtsb   VecGeneral
+-//    vcmpgtsh   VecGeneral
+-//    vcmpgtsw   VecGeneral
+-//    vcmpgtub   VecGeneral
+-//    vcmpgtuh   VecGeneral
+-//    vcmpgtuw   VecGeneral
+-//    vctsxs     VecFP
+-//    vctuxs     VecFP
+-//    vexptefp   VecFP
+-//    vlogefp    VecFP
+-//    vmaddfp    VecFP
+-//    vmaxfp     VecFPCompare
+-//    vmaxsb     VecGeneral
+-//    vmaxsh     VecGeneral
+-//    vmaxsw     VecGeneral
+-//    vmaxub     VecGeneral
+-//    vmaxuh     VecGeneral
+-//    vmaxuw     VecGeneral
+-//    vmhaddshs  VecComplex
+-//    vmhraddshs VecComplex
+-//    vminfp     VecFPCompare
+-//    vminsb     VecGeneral
+-//    vminsh     VecGeneral
+-//    vminsw     VecGeneral
+-//    vminub     VecGeneral
+-//    vminuh     VecGeneral
+-//    vminuw     VecGeneral
+-//    vmladduhm  VecComplex
+-//    vmrghb     VecPerm
+-//    vmrghh     VecPerm
+-//    vmrghw     VecPerm
+-//    vmrglb     VecPerm
+-//    vmrglh     VecPerm
+-//    vmrglw     VecPerm
+-//    vmsubfp    VecFP
+-//    vmsummbm   VecComplex
+-//    vmsumshm   VecComplex
+-//    vmsumshs   VecComplex
+-//    vmsumubm   VecComplex
+-//    vmsumuhm   VecComplex
+-//    vmsumuhs   VecComplex
+-//    vmulesb    VecComplex
+-//    vmulesh    VecComplex
+-//    vmuleub    VecComplex
+-//    vmuleuh    VecComplex
+-//    vmulosb    VecComplex
+-//    vmulosh    VecComplex
+-//    vmuloub    VecComplex
+-//    vmulouh    VecComplex
+-//    vnor       VecGeneral
+-//    vor        VecGeneral
+-//    vperm      VecPerm
+-//    vpkpx      VecPerm
+-//    vpkshss    VecPerm
+-//    vpkshus    VecPerm
+-//    vpkswss    VecPerm
+-//    vpkswus    VecPerm
+-//    vpkuhum    VecPerm
+-//    vpkuhus    VecPerm
+-//    vpkuwum    VecPerm
+-//    vpkuwus    VecPerm
+-//    vrefp      VecFPRound
+-//    vrfim      VecFPRound
+-//    vrfin      VecFPRound
+-//    vrfip      VecFPRound
+-//    vrfiz      VecFPRound
+-//    vrlb       VecGeneral
+-//    vrlh       VecGeneral
+-//    vrlw       VecGeneral
+-//    vrsqrtefp  VecFP
+-//    vsel       VecGeneral
+-//    vsl        VecVSL
+-//    vslb       VecGeneral
+-//    vsldoi     VecPerm
+-//    vslh       VecGeneral
+-//    vslo       VecPerm
+-//    vslw       VecGeneral
+-//    vspltb     VecPerm
+-//    vsplth     VecPerm
+-//    vspltisb   VecPerm
+-//    vspltish   VecPerm
+-//    vspltisw   VecPerm
+-//    vspltw     VecPerm
+-//    vsr        VecVSR
+-//    vsrab      VecGeneral
+-//    vsrah      VecGeneral
+-//    vsraw      VecGeneral
+-//    vsrb       VecGeneral
+-//    vsrh       VecGeneral
+-//    vsro       VecPerm
+-//    vsrw       VecGeneral
+-//    vsubcuw    VecGeneral
+-//    vsubfp     VecFP
+-//    vsubsbs    VecGeneral
+-//    vsubshs    VecGeneral
+-//    vsubsws    VecGeneral
+-//    vsububm    VecGeneral
+-//    vsububs    VecGeneral
+-//    vsubuhm    VecGeneral
+-//    vsubuhs    VecGeneral
+-//    vsubuwm    VecGeneral
+-//    vsubuws    VecGeneral
+-//    vsum2sws   VecComplex
+-//    vsum4sbs   VecComplex
+-//    vsum4shs   VecComplex
+-//    vsum4ubs   VecComplex
+-//    vsumsws    VecComplex
+-//    vupkhpx    VecPerm
+-//    vupkhsb    VecPerm
+-//    vupkhsh    VecPerm
+-//    vupklpx    VecPerm
+-//    vupklsb    VecPerm
+-//    vupklsh    VecPerm
+-//    vxor       VecGeneral
+-//    xor        IntGeneral
+-//    xori       IntGeneral
+-//    xoris      IntGeneral
+-//
++// Coffee Generic instruction itineraries.
++//===----------------------------------------------------------------------===//
++def CoffeeGenericItineraries : ProcessorItineraries<[ALU, IMULDIV], [], [
++  InstrItinData<IIAlu              , [InstrStage<1,  [ALU]>]>,
++  InstrItinData<IILoad             , [InstrStage<3,  [ALU]>]>,
++  InstrItinData<IIStore            , [InstrStage<1,  [ALU]>]>,
++  InstrItinData<IIXfer             , [InstrStage<2,  [ALU]>]>,
++  InstrItinData<IIBranch           , [InstrStage<1,  [ALU]>]>,
++  InstrItinData<IIHiLo             , [InstrStage<1,  [IMULDIV]>]>,
++  InstrItinData<IIImul             , [InstrStage<17, [IMULDIV]>]>,
++  InstrItinData<IIIdiv             , [InstrStage<38, [IMULDIV]>]>,
++  InstrItinData<IIFcvt             , [InstrStage<1,  [ALU]>]>,
++  InstrItinData<IIFmove            , [InstrStage<2,  [ALU]>]>,
++  InstrItinData<IIFcmp             , [InstrStage<3,  [ALU]>]>,
++  InstrItinData<IIFadd             , [InstrStage<4,  [ALU]>]>,
++  InstrItinData<IIFmulSingle       , [InstrStage<7,  [ALU]>]>,
++  InstrItinData<IIFmulDouble       , [InstrStage<8,  [ALU]>]>,
++  InstrItinData<IIFdivSingle       , [InstrStage<23, [ALU]>]>,
++  InstrItinData<IIFdivDouble       , [InstrStage<36, [ALU]>]>,
++  InstrItinData<IIFsqrtSingle      , [InstrStage<54, [ALU]>]>,
++  InstrItinData<IIFsqrtDouble      , [InstrStage<12, [ALU]>]>,
++  InstrItinData<IIFrecipFsqrtStep  , [InstrStage<5,  [ALU]>]>
++]>;
+diff --git a/lib/Target/Coffee/CoffeeTargetMachine.cpp b/lib/Target/Coffee/CoffeeTargetMachine.cpp
+index ec8095d..7bba371 100644
+--- a/lib/Target/Coffee/CoffeeTargetMachine.cpp
++++ b/lib/Target/Coffee/CoffeeTargetMachine.cpp
+@@ -32,7 +32,7 @@ CoffeeTargetMachine::CoffeeTargetMachine(const Target &T, StringRef TT,
+                                    Reloc::Model RM, CodeModel::Model CM,
+                                    CodeGenOpt::Level OL)
+   : LLVMTargetMachine(T, TT, CPU, FS, Options, RM, CM, OL),
+-    DataLayout("e-p:32:32:32-i64:64:64-f64:64:64-f128:64:64-n32"),
++    DataLayout("e-p:32:32:32-i8:8:32-i16:16:32-i64:64:64-n32"),
+     InstrInfo(*this),
+     FrameLowering(),
+     TLInfo(*this),
+@@ -59,6 +59,8 @@ public:
+     }
+ 
+     virtual bool addInstSelector();
++
++    virtual bool addPreEmitPass();
+ };
+ } // namespace
+ 
+@@ -72,4 +74,9 @@ bool CoffeePassConfig::addInstSelector() {
+   return false;
+ }
+ 
++bool CoffeePassConfig::addPreEmitPass() {
++  PM->add(createCoffeeDelaySlotFillerPass(getCoffeeTargetMachine()));
++  return true;
++}
++
+ //end of file
+diff --git a/lib/Target/Coffee/CoffeeTargetObjectFile.cpp b/lib/Target/Coffee/CoffeeTargetObjectFile.cpp
+new file mode 100644
+index 0000000..243ab2d
+--- /dev/null
++++ b/lib/Target/Coffee/CoffeeTargetObjectFile.cpp
+@@ -0,0 +1,83 @@
++//===-- CoffeeTargetObjectFile.cpp - Coffee Object Files ----------------------===//
++//
++//                     The LLVM Compiler Infrastructure
++//
++// This file is distributed under the University of Illinois Open Source
++// License. See LICENSE.TXT for details.
++//
++//===----------------------------------------------------------------------===//
++
++#include "CoffeeTargetObjectFile.h"
++
++#include "llvm/DerivedTypes.h"
++#include "llvm/GlobalVariable.h"
++#include "llvm/MC/MCContext.h"
++#include "llvm/MC/MCSectionELF.h"
++#include "llvm/Target/TargetData.h"
++#include "llvm/Target/TargetMachine.h"
++#include "llvm/Support/CommandLine.h"
++#include "llvm/Support/ELF.h"
++using namespace llvm;
++
++static cl::opt<unsigned>
++SSThreshold("Coffee-ssection-threshold", cl::Hidden,
++            cl::desc("Small data and bss section threshold size (default=8)"),
++            cl::init(8));
++
++void CoffeeTargetObjectFile::Initialize(MCContext &Ctx, const TargetMachine &TM){
++  TargetLoweringObjectFileELF::Initialize(Ctx, TM);
++
++  SmallDataSection =
++    getContext().getELFSection(".sdata", ELF::SHT_PROGBITS,
++                               ELF::SHF_WRITE |ELF::SHF_ALLOC,
++                               SectionKind::getDataRel());
++
++  SmallBSSSection =
++    getContext().getELFSection(".sbss", ELF::SHT_NOBITS,
++                               ELF::SHF_WRITE |ELF::SHF_ALLOC,
++                               SectionKind::getBSS());
++
++}
++
++// A address must be loaded from a small section if its size is less than the
++// small section size threshold. Data in this section must be addressed using
++// gp_rel operator.
++static bool IsInSmallSection(uint64_t Size) {
++  return Size > 0 && Size <= SSThreshold;
++}
++
++bool CoffeeTargetObjectFile::IsGlobalInSmallSection(const GlobalValue *GV,
++                                                const TargetMachine &TM) const {
++  if (GV->isDeclaration() || GV->hasAvailableExternallyLinkage())
++    return false;
++
++  return IsGlobalInSmallSection(GV, TM, getKindForGlobal(GV, TM));
++}
++
++/// IsGlobalInSmallSection - Return true if this global address should be
++/// placed into small data/bss section.
++bool CoffeeTargetObjectFile::
++IsGlobalInSmallSection(const GlobalValue *GV, const TargetMachine &TM,
++                       SectionKind Kind) const {
++
++    // we only support linux, small data section is for non linux target
++return false;
++}
++
++
++
++const MCSection *CoffeeTargetObjectFile::
++SelectSectionForGlobal(const GlobalValue *GV, SectionKind Kind,
++                       Mangler *Mang, const TargetMachine &TM) const {
++  // TODO: Could also support "weak" symbols as well with ".gnu.linkonce.s.*"
++  // sections?
++
++  // Handle Small Section classification here.
++  if (Kind.isBSS() && IsGlobalInSmallSection(GV, TM, Kind))
++    return SmallBSSSection;
++  if (Kind.isDataNoRel() && IsGlobalInSmallSection(GV, TM, Kind))
++    return SmallDataSection;
++
++  // Otherwise, we work the same as ELF.
++  return TargetLoweringObjectFileELF::SelectSectionForGlobal(GV, Kind, Mang,TM);
++}
+diff --git a/lib/Target/Coffee/CoffeeTargetObjectFile.h b/lib/Target/Coffee/CoffeeTargetObjectFile.h
+new file mode 100644
+index 0000000..09d6f85
+--- /dev/null
++++ b/lib/Target/Coffee/CoffeeTargetObjectFile.h
+@@ -0,0 +1,41 @@
++//===-- llvm/Target/CoffeeTargetObjectFile.h - Coffee Object Info ---*- C++ -*-===//
++//
++//                     The LLVM Compiler Infrastructure
++//
++// This file is distributed under the University of Illinois Open Source
++// License. See LICENSE.TXT for details.
++//
++//===----------------------------------------------------------------------===//
++
++#ifndef LLVM_TARGET_Coffee_TARGETOBJECTFILE_H
++#define LLVM_TARGET_Coffee_TARGETOBJECTFILE_H
++
++#include "llvm/CodeGen/TargetLoweringObjectFileImpl.h"
++
++namespace llvm {
++
++  class CoffeeTargetObjectFile : public TargetLoweringObjectFileELF {
++    const MCSection *SmallDataSection;
++    const MCSection *SmallBSSSection;
++  public:
++
++    void Initialize(MCContext &Ctx, const TargetMachine &TM);
++
++
++    /// IsGlobalInSmallSection - Return true if this global address should be
++    /// placed into small data/bss section.
++    bool IsGlobalInSmallSection(const GlobalValue *GV,
++                                const TargetMachine &TM, SectionKind Kind)const;
++    bool IsGlobalInSmallSection(const GlobalValue *GV,
++                                const TargetMachine &TM) const;
++
++    const MCSection *SelectSectionForGlobal(const GlobalValue *GV,
++                                            SectionKind Kind,
++                                            Mangler *Mang,
++                                            const TargetMachine &TM) const;
++
++    // TODO: Classify globals as Coffee wishes.
++  };
++} // end namespace llvm
++
++#endif
+diff --git a/lib/Target/Coffee/InstPrinter/CoffeeInstPrinter.cpp b/lib/Target/Coffee/InstPrinter/CoffeeInstPrinter.cpp
+index 65d5fc4..0c63abb 100644
+--- a/lib/Target/Coffee/InstPrinter/CoffeeInstPrinter.cpp
++++ b/lib/Target/Coffee/InstPrinter/CoffeeInstPrinter.cpp
+@@ -240,14 +240,19 @@ static const char *stripRegisterPrefix(const char *RegName) {
+ 
+ void CoffeeInstPrinter::printMemOperand(const MCInst *MI, unsigned OpNo, raw_ostream &O) {
+ 
+-    const MCOperand &Op = MI->getOperand(OpNo);
++   /* const MCOperand &Op = MI->getOperand(OpNo);
+     const MCOperand &Op1 = MI->getOperand(OpNo+1);
+ 
+     const char *RegName = getRegisterName(Op.getReg());
+ 
+     O << RegName;
+     O <<",\t";
+-    O <<(int)Op1.getImm();  // cast to int in order to show negative numbers
++    O <<(int)Op1.getImm();  // cast to int in order to show negative numbers*/
++
++    printOperand(MI, OpNo, O);
++    O <<",\t";
++    printOperand(MI, OpNo+1, O);
++
+ }
+ 
+ void CoffeeInstPrinter::printOperand(const MCInst *MI, unsigned OpNo,
+diff --git a/lib/Target/Coffee/InstPrinter/CoffeeInstPrinter.h b/lib/Target/Coffee/InstPrinter/CoffeeInstPrinter.h
+index cc50153..b8038b6 100644
+--- a/lib/Target/Coffee/InstPrinter/CoffeeInstPrinter.h
++++ b/lib/Target/Coffee/InstPrinter/CoffeeInstPrinter.h
+@@ -46,6 +46,7 @@ public:
+                              raw_ostream &O, const char *Modifier);
+ 
+ 
++
+   void printS5ImmOperand(const MCInst *MI, unsigned OpNo, raw_ostream &O);
+   void printU5ImmOperand(const MCInst *MI, unsigned OpNo, raw_ostream &O);
+   void printU6ImmOperand(const MCInst *MI, unsigned OpNo, raw_ostream &O);

@@ -104,7 +104,7 @@ CoffeeInstrInfo::storeRegToStackSlot(MachineBasicBlock &MBB,
       Opc = Mips::SDC1;
     else if (RC == Mips::FGR64RegisterClass)
       Opc = IsN64 ? Mips::SDC164_P8 : Mips::SDC164;*/
-    Opc = Coffee::STORErm;
+    Opc = Coffee::SW;
 
     assert(Opc && "Register class not handled!");
     BuildMI(MBB, I, DL, get(Opc)).addReg(SrcReg, getKillRegState(isKill))
@@ -133,7 +133,7 @@ CoffeeInstrInfo::loadRegFromStackSlot(MachineBasicBlock &MBB,
     DebugLoc DL;
     if (I != MBB.end()) DL = I->getDebugLoc();
     MachineMemOperand *MMO = GetMemOperand(MBB, FI, MachineMemOperand::MOLoad);
-    unsigned Opc = Coffee::LOADmrnp;
+    unsigned Opc = Coffee::LW;
 
     /*if (RC == Mips::CPURegsRegisterClass)
       Opc = IsN64 ? Mips::LW_P8 : Mips::LW;
