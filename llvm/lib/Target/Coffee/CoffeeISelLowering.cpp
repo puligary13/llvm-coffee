@@ -91,8 +91,6 @@ CoffeeTargetLowering::CoffeeTargetLowering(CoffeeTargetMachine &TM)
 
     setOperationAction(ISD::BR_JT,     MVT::Other, Custom);
 
-
-
     // Mips Custom Operations
     setOperationAction(ISD::GlobalAddress,      MVT::i32,   Custom);
     setOperationAction(ISD::BlockAddress,       MVT::i32,   Custom);
@@ -868,7 +866,7 @@ SDValue CoffeeTargetLowering::LowerOperation(SDValue Op, SelectionDAG &DAG) cons
   case ISD::FRAMEADDR:
   case ISD::BRCOND:
   case ISD::ConstantPool:
-  case ISD::DYNAMIC_STACKALLOC:
+
   case ISD::BlockAddress:
   case ISD::GlobalTLSAddress:
   case ISD::JumpTable:
@@ -880,10 +878,58 @@ SDValue CoffeeTargetLowering::LowerOperation(SDValue Op, SelectionDAG &DAG) cons
   case ISD::MEMBARRIER:
   case ISD::ATOMIC_FENCE:
       return Op;
+  //case ISD::MUL: return LowerMUL(Op, DAG);
   case ISD::GlobalAddress: return LowerGlobalAddress(Op, DAG);
+  case ISD::DYNAMIC_STACKALLOC: return LowerDYNAMIC_STACKALLOC(Op, DAG);
   case ISD::BR_CC: return LowerBR_CC(Op, DAG);
   }
 }
+
+SDValue CoffeeTargetLowering::LowerMUL(SDValue Op, SelectionDAG &DAG) const
+{
+
+//guoqing: this might need to be lowered when we need to support 64 bit output
+    // leave it empty for now
+}
+
+
+SDValue CoffeeTargetLowering::
+LowerDYNAMIC_STACKALLOC(SDValue Op, SelectionDAG &DAG) const
+{
+  MachineFunction &MF = DAG.getMachineFunction();
+  CoffeeFunctionInfo *CoffeeFI = MF.getInfo<CoffeeFunctionInfo>();
+  unsigned SP = Coffee::SP;
+
+  assert(getTargetMachine().getFrameLowering()->getStackAlignment() >=
+         cast<ConstantSDNode>(Op.getOperand(2).getNode())->getZExtValue() &&
+         "Cannot lower if the alignment of the allocated space is larger than \
+          that of the stack.");
+
+  SDValue Chain = Op.getOperand(0);
+  SDValue Size = Op.getOperand(1);
+  DebugLoc dl = Op.getDebugLoc();
+
+  // Get a reference from Coffee stack pointer
+  SDValue StackPointer = DAG.getCopyFromReg(Chain, dl, SP, getPointerTy());
+
+  // Subtract the dynamic size from the actual stack size to
+  // obtain the new stack size.
+  SDValue Sub = DAG.getNode(ISD::SUB, dl, getPointerTy(), StackPointer, Size);
+
+  // The Sub result contains the new stack start address, so it
+  // must be placed in the stack pointer register.
+  Chain = DAG.getCopyToReg(StackPointer.getValue(1), dl, SP, Sub, SDValue());
+
+  // This node always has two return values: a new stack pointer
+  // value and a chain
+  SDVTList VTLs = DAG.getVTList(getPointerTy(), MVT::Other);
+  SDValue Ptr = DAG.getFrameIndex(CoffeeFI->getDynAllocFI(), getPointerTy());
+  SDValue Ops[] = { Chain, Ptr, Chain.getValue(1) };
+
+  return DAG.getNode(COFFEEISD::DynAlloc, dl, VTLs, Ops, 3);
+}
+
+
 
 SDValue CoffeeTargetLowering::LowerGlobalAddress(SDValue Op,
                                                  SelectionDAG &DAG) const {

@@ -50,6 +50,8 @@ public:
     //Complex Pattern selectors
     bool SelectAddr(SDNode *Parent, SDValue N, SDValue &Base, SDValue &Offset);
 
+    SDNode* SelectMULT(SDNode *N, DebugLoc dl);
+
     /// getI32Imm - Return a target constant of type i32 with the specified
     /// value.
     inline SDValue getI32Imm(unsigned Imm) {
@@ -114,7 +116,11 @@ bool CoffeeDAGToDAGISel::SelectAddr(SDNode *Parent, SDValue Addr, SDValue &Base,
     // Operand is a result from an ADD.
     if (Addr.getOpcode() == ISD::ADD) {
 
-        llvm_unreachable("coffee: we need to recheck");
+        //guoqing: no need to do anything here,
+        // it was just a pesudo instr for mips
+        // we don't need it in coffee
+
+        //llvm_unreachable("coffee: we need to recheck");
       // When loading from constant pools, load the lower address part in
       // the instruction itself. Example, instead of:
       //  lui $2, %hi($CPI1_0)
@@ -151,8 +157,11 @@ SDNode* CoffeeDAGToDAGISel::Select(SDNode *N) {
     if (N->isMachineOpcode())
       return NULL;   // Already selected.
 
+    EVT NodeTy = N->getValueType(0);
+
     switch (N->getOpcode()) {
     default: break;
+
     case COFFEEISD::BRCOND: {
 
 
@@ -167,7 +176,6 @@ SDNode* CoffeeDAGToDAGISel::Select(SDNode *N) {
         // Pattern: (ARMbrcond:void (bb:Other):$dst, (imm:i32):$cc)
         // Emits: (t2Bcc:void (bb:Other):$dst, (imm:i32):$cc)
         // Pattern complexity = 6  cost = 1  size = 0
-
 
         SDValue Chain = N->getOperand(0);
         SDValue N1 = N->getOperand(1);
@@ -220,10 +228,69 @@ SDNode* CoffeeDAGToDAGISel::Select(SDNode *N) {
         return NULL;
 
     }
+
+        // guoqing: we don't do anything to ISD::MUL as the muls muli instruction
+        // will put the lo to destination register automatically
+
+        // guoqing: these are meant for handling hi part
+        case ISD::MULHS:
+        case ISD::MULHU: {
+          if (NodeTy == MVT::i32)
+            return SelectMULT(N, dl);
+          else
+              llvm_unreachable("coffee: nodetype for mulhs is not i32");
+
+
+        }
 }
 
     return SelectCode(N);
 }
+
+/// Select multiply instructions.
+SDNode*
+CoffeeDAGToDAGISel::SelectMULT(SDNode *N, DebugLoc dl) {
+
+    ConstantSDNode *CN = dyn_cast<ConstantSDNode>(N->getOperand(1));
+
+    unsigned Opc = 0;
+    if (CN) {
+    // signed 15 bit imm
+
+        bool test = isInt<15>(CN->getSExtValue());
+        bool test1 = isInt<32>(CN->getSExtValue());
+
+        if (isInt<15>(CN->getSExtValue()))
+            Opc = Coffee::MULTI;
+        else
+           Opc = Coffee::MULTR;
+    } else {
+      // register
+        Opc = Coffee::MULTR;
+    }
+
+    if (Opc == 0 ) llvm_unreachable("coffee: selectMULT");
+
+  SDNode *Mul = CurDAG->getMachineNode(Opc, dl, MVT::i32, MVT::Glue, N->getOperand(0),
+    N->getOperand(1));
+
+  // take the second output which is glue
+  SDValue glue = SDValue(Mul, 1);
+
+
+  /* def MULHI   : InstCoffee<(outs GPRC:$rd), (ins), "mulhi\t$rd", [], IIAlu, FrmJ> {
+    }*/
+  // this MULHI instruction is meant for telling which register is used to save the upper half of the
+  // mulitplication result so no inputs are needed here.
+  // but we need to take the glue output from MULTI/MULTR so that it will guarantee the MULHI will appear
+  // right after them.
+
+  return CurDAG->getMachineNode(Coffee::MULHI, dl,
+                                MVT::i32, glue);
+
+
+}
+
 /// createCoffeeISelDag - This pass converts a legalized DAG into a
 /// Coffee-specific DAG, ready for instruction scheduling.
 ///

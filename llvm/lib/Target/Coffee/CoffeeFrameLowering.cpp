@@ -33,14 +33,19 @@ using namespace llvm;
 /// or if frame pointer elimination is disabled.
 bool CoffeeFrameLowering::hasFP(const MachineFunction &MF) const {
 
-    const TargetRegisterInfo *RegInfo = MF.getTarget().getRegisterInfo();
+    /*const TargetRegisterInfo *RegInfo = MF.getTarget().getRegisterInfo();
     const MachineFrameInfo *MFI = MF.getFrameInfo();
     // Always eliminate non-leaf frame pointers.
     return ((MF.getTarget().Options.DisableFramePointerElim(MF) &&
              MFI->hasCalls()) ||
             RegInfo->needsStackRealignment(MF) ||
             MFI->hasVarSizedObjects() ||
-            MFI->isFrameAddressTaken());
+            MFI->isFrameAddressTaken());*/
+
+
+    const MachineFrameInfo *MFI = MF.getFrameInfo();
+    return MF.getTarget().Options.DisableFramePointerElim(MF) ||
+        MFI->hasVarSizedObjects() || MFI->isFrameAddressTaken();
 
 }
 
@@ -284,7 +289,7 @@ CoffeeFrameLowering::processFunctionBeforeCalleeSavedScan(MachineFunction &MF,
     // to take advantage the eliminateFrameIndex machinery. This also ensures it
     // is spilled in the order specified by getCalleeSavedRegs() to make it easier
     // to combine multiple loads / stores.
-    bool CanEliminateFrame = true;
+    /*bool CanEliminateFrame = true;
     bool CS1Spilled = false;
     bool LRSpilled = false;
     unsigned NumGPRSpills = 0;
@@ -364,7 +369,29 @@ CoffeeFrameLowering::processFunctionBeforeCalleeSavedScan(MachineFunction &MF,
     bool ExtraCSSpill = false;
     if (BigStack || !CanEliminateFrame || RegInfo->cannotEliminateFrame(MF)) {
         AFI->setHasStackFrame(true);
-      }
+      }*/
+
+    MachineRegisterInfo& MRI = MF.getRegInfo();
+    unsigned FP = Coffee::FP;
+
+    // FIXME: remove this code if register allocator can correctly mark
+    //        $fp and $ra used or unused.
+
+    // Mark $fp and $ra as used or unused.
+    if (hasFP(MF))
+      MRI.setPhysRegUsed(FP);
+
+    // The register allocator might determine $ra is used after seeing
+    // instruction "jr $ra", but we do not want PrologEpilogInserter to insert
+    // instructions to save/restore $ra unless there is a function call.
+    // To correct this, $ra is explicitly marked unused if there is no
+    // function call.
+    if (MF.getFrameInfo()->hasCalls())
+      MRI.setPhysRegUsed(Coffee::LR);
+    else {
+      MRI.setPhysRegUnused(Coffee::LR);
+    }
+
   }
 
 void CoffeeFrameLowering::processFunctionBeforeFrameFinalized(MachineFunction &MF)

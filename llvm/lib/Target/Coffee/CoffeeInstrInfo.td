@@ -20,6 +20,14 @@ def SDT_COFFEECallSeqStart : SDCallSeqStart<[ SDTCisVT<0, i32> ]>;
 def SDT_COFFEECallSeqEnd   : SDCallSeqEnd<[ SDTCisVT<0, i32>, SDTCisVT<1, i32> ]>;
 def SDT_COFFEECmp     : SDTypeProfile<0, 2, [SDTCisSameAs<0, 1>]>;
 def SDT_COFFEERet          : SDTypeProfile<0, 1, [SDTCisInt<0>]>;
+def SDT_COFFEEDynAlloc    : SDTypeProfile<1, 1, [SDTCisVT<0, iPTR>,
+                                               SDTCisSameAs<0, 1>]>;
+
+
+def SDT_MUL     : SDTypeProfile<1, 2, [SDTCisSameAs<0, 1>]>;
+
+def SDT_MUL_64     : SDTypeProfile<0, 1, []>;
+
 //def SDT_COFFEEBrcond  : SDTypeProfile<0, 2,
 //                                   [SDTCisVT<0, OtherVT>, SDTCisVT<1, i32>]>;
 
@@ -40,8 +48,9 @@ def COFFEEcall          : SDNode<"COFFEEISD::CALL", SDT_COFFEEcall,
 def COFFEEret         : SDNode<"COFFEEISD::RET", SDT_COFFEERet,
                               [SDNPHasChain, SDNPOptInGlue]>;
 
-
-
+//guoqing: this might be needed when we need to sup
+def MUL              : SDNode<"COFFEEISD::MUL", SDT_MUL, [SDNPOutGlue]>;
+def MUL_64           : SDNode<"COFFEEISD::MUL_64", SDT_MUL_64, [SDNPInGlue]>;
 
 //def COFFEEbrcond        : SDNode<"COFFEEISD::BRCOND", SDT_COFFEEBrcond,
 //                              [SDNPHasChain, SDNPInGlue]>;
@@ -51,6 +60,10 @@ def COFFEEcmp           : SDNode<"COFFEEISD::CMP", SDT_COFFEECmp,
 
 def COFFEEHi    : SDNode<"COFFEEISD::Hi", SDTIntUnaryOp>;
 def COFFEELo    : SDNode<"COFFEEISD::Lo", SDTIntBinOp>;
+
+// Pointer to dynamically allocated stack area.
+def COFFEEDynAlloc  : SDNode<"COFFEEISD::DynAlloc", SDT_COFFEEDynAlloc,
+                           [SDNPHasChain, SDNPInGlue]>;
 
 
 def immSExt16  : PatLeaf<(imm), [{ return isInt<16>(N->getSExtValue()); }]>;
@@ -296,9 +309,9 @@ def BNE     :  CBranch<0b000000, "bne", setne>;
 let isCompare = 1, Defs = [CR0] in {
 multiclass I_cmp<PatFrag opnode> {
   def ri : InstCoffee<(outs), (ins GPRC:$Rn, simm16:$imm),
-               "cmpi\t$Rn, $imm", [(opnode GPRC:$Rn, imm:$imm)], IIAlu, FrmI> {}
+               "cmpi\t$Rn,\t$imm", [(opnode GPRC:$Rn, imm:$imm)], IIAlu, FrmI> {}
   def rr : InstCoffee<(outs), (ins GPRC:$Rn, GPRC:$Rm),
-               "cmp\t$Rn, $Rm", [(opnode GPRC:$Rn, GPRC:$Rm)], IIAlu, FrmI> {}
+               "cmp\t$Rn,\t$Rm", [(opnode GPRC:$Rn, GPRC:$Rm)], IIAlu, FrmI> {}
 }
 }
 
@@ -414,16 +427,40 @@ class StoreM<bits<6> op, string instr_asm, PatFrag OpNode, RegisterClass RC,
 class ArithLogicI<bits<6> op, string instr_asm, SDNode OpNode,
                   Operand Od, PatLeaf imm_type, RegisterClass RC> :
   FI<op, (outs RC:$rt), (ins RC:$rs, Od:$imm16),
-     !strconcat(instr_asm, "\t$rt, $rs, $imm16"),
+     !strconcat(instr_asm, "\t$rt,\t$rs,\t$imm16"),
      [(set RC:$rt, (OpNode RC:$rs, imm_type:$imm16))], IIAlu> {
   let isReMaterializable = 1;
+}
+
+class ArithOverflowI<bits<6> op, string instr_asm, SDNode OpNode,
+                     Operand Od, PatLeaf imm_type, RegisterClass RC> :
+  FI<op, (outs RC:$rt), (ins RC:$rs, Od:$imm16),
+     !strconcat(instr_asm, "\t$rt, $rs, $imm16"), [], IIAlu>;
+
+
+class ArithLogicR<bits<6> op, string instr_asm, SDNode OpNode,
+                  InstrItinClass itin, RegisterClass RC, bit isComm = 0>:
+  FR<op, (outs RC:$rd), (ins RC:$rs, RC:$rt),
+     !strconcat(instr_asm, "\t$rd,\t$rs,\t$rt"),
+     [(set RC:$rd, (OpNode RC:$rs, RC:$rt))], itin> {
+  /*let shamt = 0;
+  let isCommutable = isComm;
+  let isReMaterializable = 1;*/
+}
+
+class ArithOverflowR<bits<6> op, string instr_asm,
+                    InstrItinClass itin, RegisterClass RC, bit isComm = 0>:
+  FR<op, (outs RC:$rd), (ins RC:$rs, RC:$rt),
+     !strconcat(instr_asm, "\t$rd,\t$rs,\t$rt"), [], itin> {
+ /* let shamt = 0;
+  let isCommutable = isComm;*/
 }
 
 
 // Load Upper Imediate
 class LoadUpper<bits<6> op, string instr_asm, RegisterClass RC, Operand Imm>:
   FI<op, (outs RC:$rt), (ins Imm:$imm16),
-     !strconcat(instr_asm, "\t$rt, $imm16"), [], IIAlu> {
+     !strconcat(instr_asm, "\t$rt,\t$imm16"), [], IIAlu> {
 
   let neverHasSideEffects = 1;
   let isReMaterializable = 1;
@@ -432,9 +469,21 @@ class LoadUpper<bits<6> op, string instr_asm, RegisterClass RC, Operand Imm>:
 
 def immZExt16  : PatLeaf<(imm), [{return (uint32_t)N->getZExtValue() == (unsigned short)N->getZExtValue();}], LO16>;
 
-// Arithmetic Instruction
+// Arithmetic Instruction (imm)
+def ADDiu   : ArithLogicI<0b000000, "addiu", add, simm16, immSExt16, GPRC>;
+def ADDi    : ArithOverflowI<0b000000, "addi", add, simm16, immSExt16, GPRC>;
 def ORi     : ArithLogicI<0b000000, "ori", or, uimm16, immZExt16, GPRC>;
 def LUi     : LoadUpper<0b000000, "lui", GPRC, uimm16>;
+
+// Arithmetic Instruction (reg)
+def ADDu    : ArithLogicR<0b000000, "addu", add, IIAlu, GPRC>;
+def SUBu    : ArithLogicR<0b000000, "subu", sub, IIAlu, GPRC>;
+def ADD     : ArithOverflowR<0b000000, "add", IIAlu, GPRC>;
+def SUB     : ArithOverflowR<0b000000, "sub", IIAlu, GPRC>;
+
+def AND     : ArithLogicR<0b000000, "and", and, IIAlu, GPRC>;
+def OR      : ArithLogicR<0b000000, "or",  or, IIAlu, GPRC>;
+def XOR     : ArithLogicR<0b000000, "xor", xor, IIAlu, GPRC>;
 
 /// Load and Store Instructions
 ///  aligned
@@ -555,3 +604,64 @@ def : Pat<(COFFEELo GPRC:$src, tglobaladdr:$in), (ORi GPRC:$src, tglobaladdr:$in
 
 
 
+/// Shift Instructions
+def immZExt6 : ImmLeaf<i32, [{return Imm == (Imm & 0x3f);}]>;
+def shamt       : Operand<i32>;
+
+class shift_imm<bits<6> opcode, string instr_asm,
+                       SDNode OpNode, PatFrag PF, Operand ImmOpnd,
+                       RegisterClass RC>:
+  FR<opcode, (outs RC:$rd), (ins RC:$rt, ImmOpnd:$shamt),
+     !strconcat(instr_asm, "\t$rd,\t$rt,\t$shamt"),
+     [(set RC:$rd, (OpNode RC:$rt, PF:$shamt))], IIAlu> {
+
+}
+
+// 32-bit shift instructions.
+class shift_imm32<bits<6> opcode, string instr_asm,
+                         SDNode OpNode>:
+  shift_imm<opcode, instr_asm, OpNode, immZExt6, shamt, GPRC>;
+
+class shift_reg<bits<6> opcode, string instr_asm,
+                       SDNode OpNode, RegisterClass RC>:
+  FR<opcode, (outs RC:$rd), (ins GPRC:$rs, RC:$rt),
+     !strconcat(instr_asm, "\t$rd,\t$rt,\t$rs"),
+     [(set RC:$rd, (OpNode RC:$rt, GPRC:$rs))], IIAlu> {
+
+}
+
+
+def SLLI     : shift_imm32<0b000000, "slli", shl>;
+def SRLI     : shift_imm32<0b000000, "srli", srl>;
+def SRAI     : shift_imm32<0b000000, "srai", sra>;
+def SLLR    : shift_reg<0b000000, "sll", shl, GPRC>;
+def SRLR    : shift_reg<0b000000, "srl", srl, GPRC>;
+def SRAR    : shift_reg<0b000000, "sra", sra, GPRC>;
+
+
+// select COFFEEDynAlloc
+def : Pat<(COFFEEDynAlloc addr:$f), (DynAlloc addr:$f)>;
+
+def MULR   : ArithLogicR<0b000000, "muls", mul, IIImul, GPRC>;
+def MULI   : ArithLogicI<0b000000, "muli", mul, simm16, immSExt16, GPRC>;
+
+def MULTR   : ArithLogicR<0b000000, "muls", MUL, IIImul, GPRC>;
+def MULTI   : ArithLogicI<0b000000, "muli", MUL, simm16, immSExt16, GPRC>;
+
+// no pattern
+
+/*class HI<string instr_asm, RegisterClass RC,
+                   list<Register> UseRegs>:
+  FR<0b000000, func, (outs RC:$rd), (ins),
+     !strconcat(instr_asm, "\t$rd"), [], IIHiLo> {
+  let rs = 0;
+  let rt = 0;
+  let shamt = 0;
+  let Uses = UseRegs;
+  let neverHasSideEffects = 1;
+}*/
+
+def MULHI   : InstCoffee<(outs GPRC:$rd), (ins), "mulhi\t$rd", [], IIAlu, FrmJ> {
+  let Inst{31-26} = 0b111010;
+  let Inst{15-10} = 0b111010;
+  }

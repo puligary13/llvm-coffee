@@ -35,7 +35,10 @@ enum NodeType {
     BRCOND,
     CMP,
     Hi,
-    Lo
+    Lo,
+    DynAlloc,
+    MUL,
+    MUL_64
 };
 }
 
@@ -105,6 +108,10 @@ public:
     bool isLegalICmpImmediate(int64_t Imm) const;
 
     virtual SDValue PerformDAGCombine(SDNode *N, DAGCombinerInfo &DCI) const;
+
+    SDValue LowerDYNAMIC_STACKALLOC(SDValue Op, SelectionDAG &DAG) const;
+
+    SDValue LowerMUL(SDValue Op, SelectionDAG &DAG) const;
 };
 }
 
