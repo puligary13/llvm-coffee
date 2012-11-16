@@ -184,7 +184,7 @@ SDNode* CoffeeDAGToDAGISel::Select(SDNode *N) {
         SDValue InFlag = N->getOperand(4);
         assert(N1.getOpcode() == ISD::BasicBlock);
         assert(N2.getOpcode() == ISD::Constant);
-        assert(N3.getOpcode() == ISD::Register);
+        //assert(N3.getOpcode() == ISD::Register);
 
 
         ISD::CondCode cc = (ISD::CondCode)cast<ConstantSDNode>(N2)->getZExtValue();
@@ -195,21 +195,33 @@ SDNode* CoffeeDAGToDAGISel::Select(SDNode *N) {
             llvm_unreachable("coffee:: unexpected condition code");
             break;
         case ISD::SETEQ:
+            case ISD::SETUEQ:
+             case ISD::SETOEQ:
                Opc = Coffee::BEQ;
                break;
         case ISD::SETGT:
+             case ISD::SETUGT:
+             case ISD::SETOGT:
                Opc = Coffee::BGT;
                break;
         case ISD::SETGE:
+            case ISD::SETUGE:
+            case ISD::SETOGE:
                Opc = Coffee::BEGT;
                break;
         case ISD::SETLT:
+             case ISD::SETULT:
+             case ISD::SETOLT:
                Opc = Coffee::BLT;
                break;
         case ISD::SETLE:
+            case ISD::SETULE:
+            case ISD::SETOLE:
                Opc = Coffee::BELT;
                break;
         case ISD::SETNE:
+            case ISD::SETUNE:
+            case ISD::SETONE:
                Opc = Coffee::BNE;
                break;
 

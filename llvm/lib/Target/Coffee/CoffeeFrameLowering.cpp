@@ -32,20 +32,11 @@ using namespace llvm;
 /// pointer register.  This is true if the function has variable sized allocas
 /// or if frame pointer elimination is disabled.
 bool CoffeeFrameLowering::hasFP(const MachineFunction &MF) const {
-
-    /*const TargetRegisterInfo *RegInfo = MF.getTarget().getRegisterInfo();
-    const MachineFrameInfo *MFI = MF.getFrameInfo();
-    // Always eliminate non-leaf frame pointers.
-    return ((MF.getTarget().Options.DisableFramePointerElim(MF) &&
-             MFI->hasCalls()) ||
-            RegInfo->needsStackRealignment(MF) ||
-            MFI->hasVarSizedObjects() ||
-            MFI->isFrameAddressTaken());*/
-
+    // guoqing: we should need stack realignment which needs FP also. Ignore it for now.
 
     const MachineFrameInfo *MFI = MF.getFrameInfo();
-    return MF.getTarget().Options.DisableFramePointerElim(MF) ||
-        MFI->hasVarSizedObjects() || MFI->isFrameAddressTaken();
+    return (MF.getTarget().Options.DisableFramePointerElim(MF) &&
+             MFI->hasCalls()) || MFI->hasVarSizedObjects() || MFI->isFrameAddressTaken();
 
 }
 
@@ -116,7 +107,7 @@ void CoffeeFrameLowering::emitPrologue(MachineFunction &MF) const {
     uint64_t StackSize =  RoundUpToAlignment(LocalVarAreaOffset, StackAlign) +
        RoundUpToAlignment(MFI->getStackSize(), StackAlign);
 
-     // Update stack size
+    // Update stack size after round up to alignment
     MFI->setStackSize(StackSize);
 
 
@@ -128,11 +119,18 @@ void CoffeeFrameLowering::emitPrologue(MachineFunction &MF) const {
     if (StackSize == 0 && !MFI->adjustsStack()) return;
 
 
-    // guoqing: the td code should handle the large imm already
-    //if (isInt<15>(-StackSize)) // addi sp, sp, (-stacksize)
-        BuildMI(MBB, MBBI, dl, TII.get(Coffee::ADDri), Coffee::SP).addReg(Coffee::SP).addImm(-StackSize);
-   // else
-   //     expandLargeImm(Coffee::SP, -StackSize, TII, MBB, MBBI, dl);
+    // guoqing: Mips checks the stacksize and treat large imm differetly
+    // in coffee, the large imm should be handled in td file, no need do anything
+
+    BuildMI(MBB, MBBI, dl, TII.get(Coffee::ADDri), Coffee::SP).addReg(Coffee::SP).addImm(-StackSize);
+
+    // if frame pointer enabled, set it to point to the stack pointers
+    if (hasFP(MF)) {
+        // we copy SP to FP register, processFunctionBeforeCalleeSavedScan() has add FP as used so
+        // it will be spilled on stack before this is called to save the original value in FP
+        BuildMI(MBB, MBBI, dl, TII.get(Coffee::ADDri), Coffee::FP).addReg(Coffee::SP).addImm(0);
+    }
+
 
 }
 
@@ -141,37 +139,34 @@ void CoffeeFrameLowering::emitEpilogue(MachineFunction &MF,
 
     MachineBasicBlock::iterator MBBI = MBB.getLastNonDebugInstr();
     assert(MBBI->isReturn() && "Can only insert epilog into returning blocks");
-    unsigned RetOpcode = MBBI->getOpcode();
+
     DebugLoc dl = MBBI->getDebugLoc();
     MachineFrameInfo *MFI = MF.getFrameInfo();
     CoffeeFunctionInfo *CoffeeFI = MF.getInfo<CoffeeFunctionInfo>();
     const TargetRegisterInfo *RegInfo = MF.getTarget().getRegisterInfo();
     const CoffeeInstrInfo &TII =
       *static_cast<const CoffeeInstrInfo*>(MF.getTarget().getInstrInfo());
- const std::vector<CalleeSavedInfo> &CSI = MFI->getCalleeSavedInfo();
+    const std::vector<CalleeSavedInfo> &CSI = MFI->getCalleeSavedInfo();
 
- unsigned GPRCS1Size = 0;
-    unsigned VARegSaveSize = 0; // guoqing: don't support VA reg
+    if (hasFP(MF)) {
+        // Find the first instruction that restores a callee-saved register.
+        MachineBasicBlock::iterator I = MBBI;
+
+        for (unsigned i = 0; i < MFI->getCalleeSavedInfo().size(); ++i)
+          --I;
+
+        // Insert instruction "move $sp, $fp" at this location.
+        BuildMI(MBB, I, dl, TII.get(Coffee::ADDri), Coffee::SP).addReg(Coffee::FP).addImm(0);
+    }
+
+
     int StackSize = (int)MFI->getStackSize();
-    unsigned FramePtr = RegInfo->getFrameRegister(MF);
-
-   if (StackSize == 0) return;
 
 
-   if (!CoffeeFI->hasStackFrame()) {
-     if (StackSize != 0)
-       emitSPUpdate(MBB, MBBI, dl, TII, StackSize);
-   } else {
-     // Unwind MBBI to point to first LDR / VLDRD.
-     //  for (unsigned i = 0, e = CSI.size(); i != e; ++i) {
-     //      GPRCS1Size += 4;
-     //  }
-       emitSPUpdate(MBB, MBBI, dl, TII, StackSize,
-                         MachineInstr::FrameSetup);
-   }
+    if (StackSize == 0) return;
 
-
-
+    // restore the SP after function returns
+    BuildMI(MBB, MBBI, dl, TII.get(Coffee::ADDri), Coffee::SP).addReg(Coffee::SP).addImm(StackSize);
   }
 
 static unsigned estimateStackSize(MachineFunction &MF) {
@@ -285,91 +280,6 @@ bool CoffeeFrameLowering::targetHandlesStackFrameRounding() const {
 void
 CoffeeFrameLowering::processFunctionBeforeCalleeSavedScan(MachineFunction &MF,
                                                           RegScavenger *RS) const {
-    // This tells PEI to spill the FP as if it is any other callee-save register
-    // to take advantage the eliminateFrameIndex machinery. This also ensures it
-    // is spilled in the order specified by getCalleeSavedRegs() to make it easier
-    // to combine multiple loads / stores.
-    /*bool CanEliminateFrame = true;
-    bool CS1Spilled = false;
-    bool LRSpilled = false;
-    unsigned NumGPRSpills = 0;
-    SmallVector<unsigned, 4> UnspilledCS1GPRs;
-    SmallVector<unsigned, 4> UnspilledCS2GPRs;
-    const CoffeeRegisterInfo *RegInfo =
-      static_cast<const CoffeeRegisterInfo*>(MF.getTarget().getRegisterInfo());
-    const CoffeeInstrInfo &TII =
-      *static_cast<const CoffeeInstrInfo*>(MF.getTarget().getInstrInfo());
-    CoffeeFunctionInfo *AFI = MF.getInfo<CoffeeFunctionInfo>();
-    MachineFrameInfo *MFI = MF.getFrameInfo();
-    unsigned FramePtr = RegInfo->getFrameRegister(MF);
-
-    // See if we can spill vector registers to aligned stack.
-    //checkNumAlignedDPRCS2Regs(MF);
-
-    // Spill the BasePtr if it's used.
-    if (RegInfo->hasBasePointer(MF))
-      MF.getRegInfo().setPhysRegUsed(RegInfo->getBaseRegister());
-
-    // Don't spill FP if the frame can be eliminated. This is determined
-    // by scanning the callee-save registers to see if any is used.
-    const uint16_t *CSRegs = RegInfo->getCalleeSavedRegs();
-    for (unsigned i = 0; CSRegs[i]; ++i) {
-      unsigned Reg = CSRegs[i];
-      bool Spilled = false;
-      if (MF.getRegInfo().isPhysRegOrOverlapUsed(Reg)) {
-        Spilled = true;
-        CanEliminateFrame = false;
-      }
-
-      if (!Coffee::GPRCRegisterClass->contains(Reg))
-        continue;
-
-      if (Spilled) {
-          NumGPRSpills++;
-
-          if (Reg == Coffee::LR)
-              LRSpilled = true;
-          CS1Spilled = true;
-
-      } else {
-
-          UnspilledCS1GPRs.push_back(Reg);
-          continue;
-
-      }
-    }
-
-    bool ForceLRSpill = false;
-
-
-    // If any of the stack slot references may be out of range of an immediate
-    // offset, make sure a register (or a spill slot) is available for the
-    // register scavenger. Note that if we're indexing off the frame pointer, the
-    // effective stack size is 4 bytes larger since the FP points to the stack
-    // slot of the previous FP. Also, if we have variable sized objects in the
-    // function, stack slot references will often be negative, and some of
-    // our instructions are positive-offset only, so conservatively consider
-    // that case to want a spill slot (or register) as well. Similarly, if
-    // the function adjusts the stack pointer during execution and the
-    // adjustments aren't already part of our stack size estimate, our offset
-    // calculations may be off, so be conservative.
-    // FIXME: We could add logic to be more precise about negative offsets
-    //        and which instructions will need a scratch register for them. Is it
-    //        worth the effort and added fragility?
-    bool BigStack =
-      (RS &&
-       (estimateStackSize(MF) + ((hasFP(MF) && AFI->hasStackFrame()) ? 4:0) >=
-        estimateRSStackSizeLimit(MF, this)))
-      || MFI->hasVarSizedObjects()
-      || (MFI->adjustsStack() && !canSimplifyCallFramePseudos(MF));
-
-    if (BigStack)
-        llvm_unreachable("coffee: the stack size is too big to handle the by addri instruction");
-
-    bool ExtraCSSpill = false;
-    if (BigStack || !CanEliminateFrame || RegInfo->cannotEliminateFrame(MF)) {
-        AFI->setHasStackFrame(true);
-      }*/
 
     MachineRegisterInfo& MRI = MF.getRegInfo();
     unsigned FP = Coffee::FP;
@@ -379,7 +289,7 @@ CoffeeFrameLowering::processFunctionBeforeCalleeSavedScan(MachineFunction &MF,
 
     // Mark $fp and $ra as used or unused.
     if (hasFP(MF))
-      MRI.setPhysRegUsed(FP);
+      MRI.setPhysRegUsed(FP);  //guoqing: this will spill FP on stack
 
     // The register allocator might determine $ra is used after seeing
     // instruction "jr $ra", but we do not want PrologEpilogInserter to insert

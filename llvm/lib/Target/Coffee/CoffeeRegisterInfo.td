@@ -57,34 +57,34 @@ class Rf<bits<3> num, string n> : CoffeeReg<n> {
 }
 
 // General-purpose registers
-def A0  : GPR< 0,  "a0">, DwarfRegNum<[0]>;
-def A1  : GPR< 1,  "a1">, DwarfRegNum<[1]>;
-def A2  : GPR< 2,  "a2">, DwarfRegNum<[2]>;
-def A3  : GPR< 3,  "a3">, DwarfRegNum<[3]>;
-def V0  : GPR< 4,  "v0">, DwarfRegNum<[4]>;
-def V1  : GPR< 5,  "v1">, DwarfRegNum<[5]>;
-def T0  : GPR< 6,  "t0">, DwarfRegNum<[6]>;
-def T1  : GPR< 7,  "t1">, DwarfRegNum<[7]>;
-def T2  : GPR< 8,  "t2">, DwarfRegNum<[8]>;
-def T3  : GPR< 9,  "t3">, DwarfRegNum<[9]>;
-def T4 : GPR<10, "t4">, DwarfRegNum<[10]>;
-def T5 : GPR<11, "t5">, DwarfRegNum<[11]>;
-def T6 : GPR<12, "t6">, DwarfRegNum<[12]>;
-def T7 : GPR<13, "t7">, DwarfRegNum<[13]>;
-def T8 : GPR<14, "t8">, DwarfRegNum<[14]>;
-def T9 : GPR<15, "t9">, DwarfRegNum<[15]>;
-def S0 : GPR<16, "s0">, DwarfRegNum<[16]>;
-def S1 : GPR<17, "s1">, DwarfRegNum<[17]>;
-def S2 : GPR<18, "s2">, DwarfRegNum<[18]>;
-def S3 : GPR<19, "s3">, DwarfRegNum<[19]>;
-def S4 : GPR<20, "s4">, DwarfRegNum<[20]>;
-def S5 : GPR<21, "s5">, DwarfRegNum<[21]>;
-def S6 : GPR<22, "s6">, DwarfRegNum<[22]>;
-def S7 : GPR<23, "s7">, DwarfRegNum<[23]>;
-def S8 : GPR<24, "s8">, DwarfRegNum<[24]>;
-def S9 : GPR<25, "s9">, DwarfRegNum<[25]>;
-def S10 : GPR<26, "s10">, DwarfRegNum<[26]>;
-def S11 : GPR<27, "s11">, DwarfRegNum<[27]>;
+def T0  : GPR<0,  "t0">, DwarfRegNum<[0]>;
+def T1  : GPR<1,  "t1">, DwarfRegNum<[1]>;
+def T2  : GPR<2,  "t2">, DwarfRegNum<[2]>;
+def T3  : GPR<3,  "t3">, DwarfRegNum<[3]>;
+def T4 : GPR<4, "t4">, DwarfRegNum<[4]>;
+def T5 : GPR<5, "t5">, DwarfRegNum<[5]>;
+def T6 : GPR<6, "t6">, DwarfRegNum<[6]>;
+def T7 : GPR<7, "t7">, DwarfRegNum<[7]>;
+def T8 : GPR<8, "t8">, DwarfRegNum<[8]>;
+def T9 : GPR<9, "t9">, DwarfRegNum<[9]>;
+def S0 : GPR<10, "s0">, DwarfRegNum<[10]>;
+def S1 : GPR<11, "s1">, DwarfRegNum<[11]>;
+def S2 : GPR<12, "s2">, DwarfRegNum<[12]>;
+def S3 : GPR<13, "s3">, DwarfRegNum<[13]>;
+def S4 : GPR<14, "s4">, DwarfRegNum<[14]>;
+def S5 : GPR<15, "s5">, DwarfRegNum<[15]>;
+def S6 : GPR<16, "s6">, DwarfRegNum<[16]>;
+def S7 : GPR<17, "s7">, DwarfRegNum<[17]>;
+def S8 : GPR<18, "s8">, DwarfRegNum<[18]>;
+def S9 : GPR<19, "s9">, DwarfRegNum<[19]>;
+def S10 : GPR<20, "s10">, DwarfRegNum<[20]>;
+def S11 : GPR<21, "s11">, DwarfRegNum<[21]>;
+def A0  : GPR< 22,  "a0">, DwarfRegNum<[22]>;
+def A1  : GPR< 23,  "a1">, DwarfRegNum<[23]>;
+def A2  : GPR< 24,  "a2">, DwarfRegNum<[24]>;
+def A3  : GPR< 25,  "a3">, DwarfRegNum<[25]>;
+def V0  : GPR< 26,  "v0">, DwarfRegNum<[26]>;
+def V1  : GPR< 27,  "v1">, DwarfRegNum<[27]>;
 def GP : GPR<28, "gp">, DwarfRegNum<[28]>;
 def SP : GPR<29, "sp">, DwarfRegNum<[29]>;
 def FP : GPR<30, "fp">, DwarfRegNum<[30]>;
@@ -185,12 +185,12 @@ def CR7 : CR<7, "cr7", [CR7ZE, CR7NE, CR7CA]>, DwarfRegNum<[71]>;
 
 // general purpose register class
 def GPRC : RegisterClass<"Coffee", [i32], 32, (add
-//Arguments and Return
-A0, A1, A2, A3, V0, V1,
 //Not preserved
 T0, T1, T2, T3, T4, T5, T6, T7, T8, T9,
 //Callee save
 S0, S1, S2, S3, S4, S5, S6, S7, S8, S9, S10, S11,
+//Arguments and Return
+A0, A1, A2, A3, V0, V1,
 //Reserved
 GP, SP, FP, LR
 )>;

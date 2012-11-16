@@ -18,16 +18,10 @@
 
 namespace llvm {
 
-  class CoffeeMCAsmInfoDarwin : public MCAsmInfoDarwin {
-    virtual void anchor();
-  public:
-    explicit CoffeeMCAsmInfoDarwin(bool is64Bit);
-  };
-
   class CoffeeLinuxMCAsmInfo : public MCAsmInfo {
     virtual void anchor();
   public:
-    explicit CoffeeLinuxMCAsmInfo(bool is64Bit);
+    explicit CoffeeLinuxMCAsmInfo();
   };
 
 } // namespace llvm

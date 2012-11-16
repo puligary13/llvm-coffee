@@ -18,7 +18,7 @@ include "CoffeeInstrFormats.td"
 // Node definition
 def SDT_COFFEECallSeqStart : SDCallSeqStart<[ SDTCisVT<0, i32> ]>;
 def SDT_COFFEECallSeqEnd   : SDCallSeqEnd<[ SDTCisVT<0, i32>, SDTCisVT<1, i32> ]>;
-def SDT_COFFEECmp     : SDTypeProfile<0, 2, [SDTCisSameAs<0, 1>]>;
+def SDT_COFFEECmp     : SDTypeProfile<1, 2, [SDTCisSameAs<0, 1>]>;
 def SDT_COFFEERet          : SDTypeProfile<0, 1, [SDTCisInt<0>]>;
 def SDT_COFFEEDynAlloc    : SDTypeProfile<1, 1, [SDTCisVT<0, iPTR>,
                                                SDTCisSameAs<0, 1>]>;
@@ -306,12 +306,12 @@ def BNE     :  CBranch<0b000000, "bne", setne>;
 //def CMPr     : SetCC_R<0b000000, "cmp", GPRC>;
 
 
-let isCompare = 1, Defs = [CR0] in {
+let isCompare = 1 in {
 multiclass I_cmp<PatFrag opnode> {
-  def ri : InstCoffee<(outs), (ins GPRC:$Rn, simm16:$imm),
-               "cmpi\t$Rn,\t$imm", [(opnode GPRC:$Rn, imm:$imm)], IIAlu, FrmI> {}
-  def rr : InstCoffee<(outs), (ins GPRC:$Rn, GPRC:$Rm),
-               "cmp\t$Rn,\t$Rm", [(opnode GPRC:$Rn, GPRC:$Rm)], IIAlu, FrmI> {}
+  def ri : InstCoffee<(outs CRRC:$Rd ), (ins GPRC:$Rn, simm16:$imm),
+               "cmpi\t$Rd\t$Rn,\t$imm", [(set CRRC:$Rd, (opnode GPRC:$Rn, imm:$imm))], IIAlu, FrmI> {}
+  def rr : InstCoffee<(outs CRRC:$Rd), (ins GPRC:$Rn, GPRC:$Rm),
+               "cmp\t$Rd\t$Rn,\t$Rm", [(set CRRC:$Rd, (opnode GPRC:$Rn, GPRC:$Rm))], IIAlu, FrmI> {}
 }
 }
 
@@ -499,6 +499,11 @@ def SH      : StoreM<0x00, "sh", truncstorei16_a,  GPRC, MEMri, 1>;
 def SW      : StoreM<0x00, "sw", store_a,  GPRC, MEMri, 1>;
 
 
+  def : Pat<(i32 (extloadi1  addr:$src)), (LBu addr:$src)>;
+  def : Pat<(i32 (extloadi8  addr:$src)), (LBu addr:$src)>;
+  def : Pat<(i32 (extloadi16_a addr:$src)), (LHu addr:$src)>;
+
+
 
 //load lower half, no pattern, use for store constant to a register
 def Loadlinp : InstCoffee<(outs GPRC:$dst),
@@ -597,10 +602,14 @@ def DynAlloc : EffectiveAddress<"addiu\t$rt,\t$addr", GPRC, MEMri> {
 
 //hi/lo relocs
 
-def : Pat<(COFFEEHi tglobaladdr:$in), (LUi tglobaladdr:$in)>;
 
+def : Pat<(COFFEEHi tglobaladdr:$in), (LUi tglobaladdr:$in)>;
+def : Pat<(COFFEEHi tblockaddress:$in), (LUi tblockaddress:$in)>;
+def : Pat<(COFFEEHi tjumptable:$in), (LUi tjumptable:$in)>;
 
 def : Pat<(COFFEELo GPRC:$src, tglobaladdr:$in), (ORi GPRC:$src, tglobaladdr:$in)>;
+def : Pat<(COFFEELo GPRC:$src, tblockaddress:$in), (ORi GPRC:$src, tblockaddress:$in)>;
+def : Pat<(COFFEELo GPRC:$src, tjumptable:$in), (ORi GPRC:$src, tjumptable:$in)>;
 
 
 

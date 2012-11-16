@@ -38,28 +38,19 @@ static MCInstrInfo *createCoffeeMCInstrInfo() {
 }
 
 static MCRegisterInfo *createCoffeeMCRegisterInfo(StringRef TT) {
-  Triple TheTriple(TT);
- // unsigned Flavour = 1;
-  unsigned RA = Coffee::LR;
-
   MCRegisterInfo *X = new MCRegisterInfo();
-  InitCoffeeMCRegisterInfo(X, RA);
+  InitCoffeeMCRegisterInfo(X, Coffee::LR);
   return X;
 }
 
 
 static MCAsmInfo *createCoffeeMCAsmInfo(const Target &T, StringRef TT) {
-  Triple TheTriple(TT);
 
-  MCAsmInfo *MAI;
-  if (TheTriple.isOSDarwin())
-    MAI = new CoffeeMCAsmInfoDarwin(false);
-  else
-    MAI = new CoffeeLinuxMCAsmInfo(false);
+  MCAsmInfo *MAI = new CoffeeLinuxMCAsmInfo();
 
   // Initial state of the frame pointer is R1.
   MachineLocation Dst(MachineLocation::VirtualFP);
-  MachineLocation Src(Coffee::T1, 0);
+  MachineLocation Src(Coffee::SP, 0);
   MAI->addInitialFrameState(0, Dst, Src);
 
   return MAI;
@@ -77,27 +68,25 @@ static MCCodeGenInfo *createCoffeeMCCodeGenInfo(StringRef TT, Reloc::Model RM,
   return X;
 }
 
-// This is duplicated code. Refactor this.
-static MCStreamer *createMCStreamer(const Target &T, StringRef TT,
-                                    MCContext &Ctx, MCAsmBackend &MAB,
-                                    raw_ostream &OS,
-                                    MCCodeEmitter *Emitter,
-                                    bool RelaxAll,
-                                    bool NoExecStack) {
-  if (Triple(TT).isOSDarwin())
-    return createMachOStreamer(Ctx, MAB, OS, Emitter, RelaxAll);
-
-  return createELFStreamer(Ctx, MAB, OS, Emitter, RelaxAll, NoExecStack);
-}
-
 static MCInstPrinter *createCoffeeMCInstPrinter(const Target &T,
                                              unsigned SyntaxVariant,
                                              const MCAsmInfo &MAI,
                                              const MCInstrInfo &MII,
                                              const MCRegisterInfo &MRI,
                                              const MCSubtargetInfo &STI) {
-  return new CoffeeInstPrinter(MAI, MII, MRI, SyntaxVariant);
+  return new CoffeeInstPrinter(MAI, MII, MRI);
 }
+
+
+static MCStreamer *createMCStreamer(const Target &T, StringRef TT,
+                                    MCContext &Ctx, MCAsmBackend &MAB,
+                                    raw_ostream &OS,
+                                    MCCodeEmitter *Emitter,
+                                    bool RelaxAll,
+                                    bool NoExecStack) {
+  return createELFStreamer(Ctx, MAB, OS, Emitter, RelaxAll, NoExecStack);
+}
+
 
 extern "C" void LLVMInitializeCoffeeTargetMC() {
   // Register the MC asm info.

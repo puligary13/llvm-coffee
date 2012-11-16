@@ -14,57 +14,25 @@
 #include "CoffeeMCAsmInfo.h"
 using namespace llvm;
 
-void CoffeeMCAsmInfoDarwin::anchor() { }
-
-CoffeeMCAsmInfoDarwin::CoffeeMCAsmInfoDarwin(bool is64Bit) {
-  if (is64Bit)
-    PointerSize = 8;
-  IsLittleEndian = false;
-
-  PCSymbol = ".";
-  CommentString = ";";
-  ExceptionsType = ExceptionHandling::DwarfCFI;
-
-  if (!is64Bit)
-    Data64bitsDirective = 0;      // We can't emit a 64-bit unit in Coffee32 mode.
-
-  AssemblerDialect = 1;           // New-Style mnemonics.
-  SupportsDebugInformation= true; // Debug information.
-}
-
 void CoffeeLinuxMCAsmInfo::anchor() { }
 
-CoffeeLinuxMCAsmInfo::CoffeeLinuxMCAsmInfo(bool is64Bit) {
-  if (is64Bit)
-    PointerSize = 8;
-  IsLittleEndian = false;
+CoffeeLinuxMCAsmInfo::CoffeeLinuxMCAsmInfo() {
+    IsLittleEndian = false;
 
-  // ".comm align is in bytes but .align is pow-2."
-  AlignmentIsInBytes = false;
+    AlignmentIsInBytes          = false;
+    Data16bitsDirective         = "\t.2byte\t";
+    Data32bitsDirective         = "\t.4byte\t";
+    Data64bitsDirective         = "\t.8byte\t";
+    PrivateGlobalPrefix         = "L";  //todo: change this to # or $ adds " or ( around the label, need to check why in future when needed
+    CommentString               = "#";
+    ZeroDirective               = "\t.space\t";
+    GPRel32Directive            = "\t.gpword\t";
+    GPRel64Directive            = "\t.gpdword\t";
+    WeakRefDirective            = "\t.weak\t";
 
-  CommentString = "#";
-  GlobalPrefix = "";
-  PrivateGlobalPrefix = ".L";
-  WeakRefDirective = "\t.weak\t";
-  
-  // Uses '.section' before '.bss' directive
-  UsesELFSectionDirectiveForBSS = true;  
-
-  // Debug Information
-  SupportsDebugInformation = true;
-
-  PCSymbol = ".";
-
-  // Set up DWARF directives
-  HasLEB128 = true;  // Target asm supports leb128 directives (little-endian)
-
-  // Exceptions handling
-  if (!is64Bit)
+    SupportsDebugInformation = true;
     ExceptionsType = ExceptionHandling::DwarfCFI;
-    
-  ZeroDirective = "\t.space\t";
-  Data64bitsDirective = is64Bit ? "\t.quad\t" : 0;
-  LCOMMDirectiveType = LCOMM::NoAlignment;
-  AssemblerDialect = 0;           // Old-Style mnemonics.
+    HasLEB128 = true;
+    DwarfRegNumForCFI = true;
 }
 

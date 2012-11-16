@@ -867,9 +867,8 @@ SDValue CoffeeTargetLowering::LowerOperation(SDValue Op, SelectionDAG &DAG) cons
   case ISD::BRCOND:
   case ISD::ConstantPool:
 
-  case ISD::BlockAddress:
-  case ISD::GlobalTLSAddress:
-  case ISD::JumpTable:
+
+
   case ISD::SELECT:
   case ISD::SETCC:
   case ISD::VASTART:
@@ -878,20 +877,54 @@ SDValue CoffeeTargetLowering::LowerOperation(SDValue Op, SelectionDAG &DAG) cons
   case ISD::MEMBARRIER:
   case ISD::ATOMIC_FENCE:
       return Op;
-  //case ISD::MUL: return LowerMUL(Op, DAG);
+
+  case ISD::GlobalTLSAddress: llvm_unreachable("coffee: tls address");
+  case ISD::BlockAddress: return LowerBlockAddress(Op, DAG);
+  case ISD::JumpTable: return     LowerJumpTable(Op, DAG);
   case ISD::GlobalAddress: return LowerGlobalAddress(Op, DAG);
   case ISD::DYNAMIC_STACKALLOC: return LowerDYNAMIC_STACKALLOC(Op, DAG);
   case ISD::BR_CC: return LowerBR_CC(Op, DAG);
   }
 }
 
-SDValue CoffeeTargetLowering::LowerMUL(SDValue Op, SelectionDAG &DAG) const
-{
 
-//guoqing: this might need to be lowered when we need to support 64 bit output
-    // leave it empty for now
+SDValue CoffeeTargetLowering::LowerBlockAddress(SDValue Op,
+                                              SelectionDAG &DAG) const {
+  const BlockAddress *BA = cast<BlockAddressSDNode>(Op)->getBlockAddress();
+  // FIXME there isn't actually debug info here
+  DebugLoc dl = Op.getDebugLoc();
+
+
+    // %hi/%lo relocation
+    SDValue BAHi = DAG.getBlockAddress(BA, MVT::i32, true, CoffeeII::MO_ABS_HI);
+    SDValue BALo = DAG.getBlockAddress(BA, MVT::i32, true, CoffeeII::MO_ABS_LO);
+    SDValue Hi = DAG.getNode(COFFEEISD::Hi, dl, MVT::i32, BAHi);
+
+    return DAG.getNode(COFFEEISD::Lo, dl, MVT::i32, BALo, Hi);
 }
 
+
+SDValue CoffeeTargetLowering::
+LowerJumpTable(SDValue Op, SelectionDAG &DAG) const
+{
+  SDValue HiPart, JTI, JTILo;
+  // FIXME there isn't actually debug info here
+  DebugLoc dl = Op.getDebugLoc();
+  bool IsPIC = getTargetMachine().getRelocationModel() == Reloc::PIC_;
+  EVT PtrVT = Op.getValueType();
+  JumpTableSDNode *JT = cast<JumpTableSDNode>(Op);
+
+
+    JTI = DAG.getTargetJumpTable(JT->getIndex(), PtrVT, CoffeeII::MO_ABS_HI);
+    HiPart = DAG.getNode(COFFEEISD::Hi, dl, PtrVT, JTI);
+
+
+    JTILo = DAG.getTargetJumpTable(JT->getIndex(), PtrVT, CoffeeII::MO_ABS_LO);
+
+   return DAG.getNode(COFFEEISD::Lo, dl, MVT::i32, HiPart, JTILo);
+
+
+}
 
 SDValue CoffeeTargetLowering::
 LowerDYNAMIC_STACKALLOC(SDValue Op, SelectionDAG &DAG) const
@@ -948,9 +981,9 @@ SDValue CoffeeTargetLowering::LowerGlobalAddress(SDValue Op,
     }
     // %hi/%lo relocation
     SDValue GAHi = DAG.getTargetGlobalAddress(GV, dl, MVT::i32, 0,
-                                              0);
+                                              CoffeeII::MO_ABS_HI);
     SDValue GALo = DAG.getTargetGlobalAddress(GV, dl, MVT::i32, 0,
-                                              0);
+                                              CoffeeII::MO_ABS_LO);
     SDValue HiPart = DAG.getNode(COFFEEISD::Hi, dl, MVT::i32, GAHi);
 
     return DAG.getNode(COFFEEISD::Lo, dl, MVT::i32, HiPart, GALo);
@@ -969,11 +1002,15 @@ SDValue CoffeeTargetLowering::LowerBR_CC(SDValue Op, SelectionDAG &DAG) const {
 
   if (LHS.getValueType() == MVT::i32) {
     SDValue CC = DAG.getConstant(CondCode, MVT::i32);
-    SDValue Cmp = getCoffeeCmp(LHS, RHS, DAG, dl);
-    SDValue CCR = DAG.getRegister(Coffee::CR0, MVT::i32);
+    SDValue cmp = getCoffeeCmp(LHS, RHS, DAG, dl); // condition register
+
+    SDValue glue = cmp.getValue(1);
+    SDValue ccreg = cmp.getValue(0);
+
+   // SDValue CCR = DAG.getRegister(Coffee::CR0, MVT::i32);
 
     return DAG.getNode(COFFEEISD::BRCOND, dl, MVT::Other,
-                       Chain, Dest, CC, CCR, Cmp);
+                       Chain, Dest, CC, ccreg, glue);
   }
 
 }
@@ -995,7 +1032,9 @@ CoffeeTargetLowering::getCoffeeCmp(SDValue LHS, SDValue RHS,
         llvm_unreachable("coffee: cmp imm doesn't fit");
   }
 
-  return DAG.getNode(COFFEEISD::CMP, dl, MVT::Glue, LHS, RHS);
+  SDVTList VTLs = DAG.getVTList(MVT::i32, MVT::Glue);
+
+  return DAG.getNode(COFFEEISD::CMP, dl, VTLs, LHS, RHS);
 }
 
 

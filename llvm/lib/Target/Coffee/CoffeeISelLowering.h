@@ -111,7 +111,11 @@ public:
 
     SDValue LowerDYNAMIC_STACKALLOC(SDValue Op, SelectionDAG &DAG) const;
 
-    SDValue LowerMUL(SDValue Op, SelectionDAG &DAG) const;
+
+
+    SDValue LowerJumpTable(SDValue Op, SelectionDAG &DAG) const;
+
+    SDValue LowerBlockAddress(SDValue Op, SelectionDAG &DAG) const;
 };
 }
 

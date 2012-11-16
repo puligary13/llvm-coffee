@@ -23,7 +23,7 @@ namespace llvm {
 class CoffeeFrameLowering: public TargetFrameLowering {
 
 public:
-    CoffeeFrameLowering()                                     //TODO: this should change back to 4,
+    CoffeeFrameLowering()
 
         : TargetFrameLowering(TargetFrameLowering::StackGrowsDown, 8, 0)
     {
