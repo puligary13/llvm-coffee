@@ -44,7 +44,6 @@ public:
     UnknownArch,
 
     arm,     // ARM; arm, armv.*, xscale
-    cellspu, // CellSPU: spu, cellspu
     hexagon, // Hexagon: hexagon
     mips,    // MIPS: mips, mipsallegrex
     mipsel,  // MIPSEL: mipsel, mipsallegrexel
@@ -62,11 +61,13 @@ public:
     x86_64,  // X86-64: amd64, x86_64
     xcore,   // XCore: xcore
     mblaze,  // MBlaze: mblaze
-    ptx32,   // PTX: ptx (32-bit)
-    ptx64,   // PTX: ptx (64-bit)
+    nvptx,   // NVPTX: 32-bit
+    nvptx64, // NVPTX: 64-bit
     le32,    // le32: generic little-endian 32-bit CPU (PNaCl / Emscripten)
     amdil,   // amdil: amd IL
-    coffee   // coffee
+    coffee,   // coffee
+    spir,    // SPIR: standard portable IR for OpenCL 32-bit version
+    spir64   // SPIR: standard portable IR for OpenCL 64-bit version
   };
   enum VendorType {
     UnknownVendor,
@@ -76,7 +77,9 @@ public:
     SCEI,
     BGP,
     BGQ,
-    TUT
+    TUT,
+    Freescale,
+    IBM
   };
   enum OSType {
     UnknownOS,
@@ -100,7 +103,9 @@ public:
     Minix,
     RTEMS,
     NativeClient,
-    CNK         // BG/P Compute-Node Kernel
+    CNK,         // BG/P Compute-Node Kernel
+    Bitrig,
+    AIX
   };
   enum EnvironmentType {
     UnknownEnvironment,
@@ -110,7 +115,8 @@ public:
     GNUEABIHF,
     EABI,      // For now, coffee use arm EABI, change later if needed
     MachO,
-    ANDROIDEABI
+    Android,
+    ELF
   };
 
 private:
@@ -196,6 +202,11 @@ public:
   bool getMacOSXVersion(unsigned &Major, unsigned &Minor,
                         unsigned &Micro) const;
 
+  /// getiOSVersion - Parse the version number as with getOSVersion.  This should
+  /// only be called with IOS triples.
+  void getiOSVersion(unsigned &Major, unsigned &Minor,
+                     unsigned &Micro) const;
+
   /// @}
   /// @name Direct Component Access
   /// @{
@@ -268,7 +279,7 @@ public:
   /// compatibility, which handles supporting skewed version numbering schemes
   /// used by the "darwin" triples.
   unsigned isMacOSXVersionLT(unsigned Major, unsigned Minor = 0,
-			     unsigned Micro = 0) const {
+                             unsigned Micro = 0) const {
     assert(isMacOSX() && "Not an OS X triple!");
 
     // If this is OS X, expect a sane version number.
@@ -337,7 +348,7 @@ public:
   /// to a known type.
   void setEnvironment(EnvironmentType Kind);
 
-  /// setTriple - Set all components to the new triple \arg Str.
+  /// setTriple - Set all components to the new triple \p Str.
   void setTriple(const Twine &Str);
 
   /// setArchName - Set the architecture (first) component of the
@@ -388,11 +399,10 @@ public:
   /// @name Static helpers for IDs.
   /// @{
 
-  /// getArchTypeName - Get the canonical name for the \arg Kind
-  /// architecture.
+  /// getArchTypeName - Get the canonical name for the \p Kind architecture.
   static const char *getArchTypeName(ArchType Kind);
 
-  /// getArchTypePrefix - Get the "prefix" canonical name for the \arg Kind
+  /// getArchTypePrefix - Get the "prefix" canonical name for the \p Kind
   /// architecture. This is the prefix used by the architecture specific
   /// builtins, and is suitable for passing to \see
   /// Intrinsic::getIntrinsicForGCCBuiltin().
@@ -400,15 +410,13 @@ public:
   /// \return - The architecture prefix, or 0 if none is defined.
   static const char *getArchTypePrefix(ArchType Kind);
 
-  /// getVendorTypeName - Get the canonical name for the \arg Kind
-  /// vendor.
+  /// getVendorTypeName - Get the canonical name for the \p Kind vendor.
   static const char *getVendorTypeName(VendorType Kind);
 
-  /// getOSTypeName - Get the canonical name for the \arg Kind operating
-  /// system.
+  /// getOSTypeName - Get the canonical name for the \p Kind operating system.
   static const char *getOSTypeName(OSType Kind);
 
-  /// getEnvironmentTypeName - Get the canonical name for the \arg Kind
+  /// getEnvironmentTypeName - Get the canonical name for the \p Kind
   /// environment.
   static const char *getEnvironmentTypeName(EnvironmentType Kind);
 
@@ -419,11 +427,6 @@ public:
   /// getArchTypeForLLVMName - The canonical type for the given LLVM
   /// architecture name (e.g., "x86").
   static ArchType getArchTypeForLLVMName(StringRef Str);
-
-  /// getArchTypeForDarwinArchName - Get the architecture type for a "Darwin"
-  /// architecture name, for example as accepted by "gcc -arch" (see also
-  /// arch(3)).
-  static ArchType getArchTypeForDarwinArchName(StringRef Str);
 
   /// @}
 };

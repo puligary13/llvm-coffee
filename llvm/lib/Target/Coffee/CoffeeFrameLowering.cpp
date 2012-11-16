@@ -205,7 +205,7 @@ static unsigned estimateStackSize(MachineFunction &MF) {
   // value.
   unsigned StackAlign;
   if (MFI->adjustsStack() || MFI->hasVarSizedObjects() ||
-      (RegInfo->needsStackRealignment(MF) && MFI->getObjectIndexEnd() != 0))
+      (MFI->getObjectIndexEnd() != 0))
     StackAlign = TFI->getStackAlignment();
   else
     StackAlign = TFI->getTransientStackAlignment();
@@ -336,8 +336,6 @@ int CoffeeFrameLowering::ResolveFrameIndexReference(const MachineFunction &MF,
 
   // When dynamically realigning the stack, use the frame pointer for
   // parameters, and the stack/base pointer for locals.
-  if (RegInfo->needsStackRealignment(MF))
-      llvm_unreachable("coffee:ResolveFrameIndexReference no stack realignment support ");
 
   // If there is a frame pointer, use it when we can.
   if (hasFP(MF) && AFI->hasStackFrame()) {

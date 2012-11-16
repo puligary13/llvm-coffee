@@ -53,8 +53,8 @@ CoffeeTargetLowering::CoffeeTargetLowering(CoffeeTargetMachine &TM)
     setBooleanContents(ZeroOrOneBooleanContent);
     setBooleanVectorContents(ZeroOrOneBooleanContent); // FIXME: Is this correct?
 
-    addRegisterClass(MVT::i32, Coffee::GPRCRegisterClass);
-    addRegisterClass(MVT::f32, Coffee::FPRCRegisterClass);
+    addRegisterClass(MVT::i32, &Coffee::GPRCRegClass);
+    addRegisterClass(MVT::f32, &Coffee::FPRCRegClass);
 
 
 
@@ -387,7 +387,7 @@ CoffeeTargetLowering::LowerFormalArguments(SDValue Chain,
         const TargetRegisterClass *RC;
 
         if (RegVT == MVT::i32)
-          RC = Coffee::GPRCRegisterClass;
+          RC = &Coffee::GPRCRegClass;
         else
           llvm_unreachable("Coffee: RegVT not supported by FormalArguments Lowering");
 

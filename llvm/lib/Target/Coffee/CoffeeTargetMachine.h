@@ -21,7 +21,7 @@
 #include "CoffeeISelLowering.h"
 #include "CoffeeSelectionDAGInfo.h"
 #include "llvm/Target/TargetMachine.h"
-#include "llvm/Target/TargetData.h"
+#include "llvm/DataLayout.h"
 
 namespace llvm {
 
@@ -30,7 +30,7 @@ namespace llvm {
 class CoffeeTargetMachine : public LLVMTargetMachine {
     virtual void anchor();
 
-    const TargetData    DataLayout;       // Calculates type size & alignment
+    const DataLayout       DL;       // Calculates type size & alignment
     CoffeeInstrInfo        InstrInfo;
     CoffeeFrameLowering    FrameLowering;
     CoffeeTargetLowering   TLInfo;
@@ -57,7 +57,7 @@ public:
         return &InstrInfo.getRegisterInfo();
     }
 
-    virtual const TargetData    *getTargetData() const    { return &DataLayout; }
+    virtual const DataLayout *getDataLayout()    const    { return &DL; }
 
     // Pass Pipeline Configuration
     virtual TargetPassConfig *createPassConfig(PassManagerBase &PM);

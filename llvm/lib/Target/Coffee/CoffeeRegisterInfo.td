@@ -212,7 +212,6 @@ def CRBITRC : RegisterClass<"Coffee", [i32], 32,
 
 def CRRC : RegisterClass<"Coffee", [i32], 32, (add CR0, CR1, CR2, CR3,
                                                 CR4, CR5, CR6, CR7)> {
-  let SubRegClasses = [(CRBITRC sub_zero, sub_negative, sub_carry)];
 }
 
 

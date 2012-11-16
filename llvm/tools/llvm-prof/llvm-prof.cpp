@@ -281,13 +281,15 @@ int main(int argc, char **argv) {
   // using the standard profile info provider pass, but for now this gives us
   // access to additional information not exposed via the ProfileInfo
   // interface.
-  ProfileInfoLoader PIL(argv[0], ProfileDataFile, *M);
+  ProfileInfoLoader PIL(argv[0], ProfileDataFile);
 
   // Run the printer pass.
   PassManager PassMgr;
   PassMgr.add(createProfileLoaderPass(ProfileDataFile));
   PassMgr.add(new ProfileInfoPrinterPass(PIL));
+  PassMgr.doInitialization();
   PassMgr.run(*M);
+  PassMgr.doFinalization();
 
   return 0;
 }

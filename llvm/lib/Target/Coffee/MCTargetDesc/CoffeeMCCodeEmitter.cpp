@@ -15,6 +15,7 @@
 #include "MCTargetDesc/CoffeeBaseInfo.h"
 #include "MCTargetDesc/CoffeeFixupKinds.h"
 #include "llvm/MC/MCCodeEmitter.h"
+#include "llvm/MC/MCRegisterInfo.h"
 #include "llvm/MC/MCInst.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/Support/raw_ostream.h"
@@ -80,6 +81,7 @@ public:
 } // end anonymous namespace
   
 MCCodeEmitter *llvm::createCoffeeMCCodeEmitter(const MCInstrInfo &MCII,
+                                               const MCRegisterInfo &MRI,
                                             const MCSubtargetInfo &STI,
                                             MCContext &Ctx) {
   return new CoffeeMCCodeEmitter(MCII, STI, Ctx);

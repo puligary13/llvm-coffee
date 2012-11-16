@@ -13,22 +13,22 @@
 //===----------------------------------------------------------------------===//
 
 #include "llvm/Transforms/Utils/Cloning.h"
+#include "llvm/Attributes.h"
 #include "llvm/Constants.h"
+#include "llvm/DebugInfo.h"
 #include "llvm/DerivedTypes.h"
-#include "llvm/Module.h"
+#include "llvm/IRBuilder.h"
 #include "llvm/Instructions.h"
 #include "llvm/IntrinsicInst.h"
 #include "llvm/Intrinsics.h"
-#include "llvm/Attributes.h"
-#include "llvm/Analysis/CallGraph.h"
-#include "llvm/Analysis/DebugInfo.h"
-#include "llvm/Analysis/InstructionSimplify.h"
-#include "llvm/Target/TargetData.h"
-#include "llvm/Transforms/Utils/Local.h"
+#include "llvm/Module.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringExtras.h"
+#include "llvm/Analysis/CallGraph.h"
+#include "llvm/Analysis/InstructionSimplify.h"
 #include "llvm/Support/CallSite.h"
-#include "llvm/Support/IRBuilder.h"
+#include "llvm/DataLayout.h"
+#include "llvm/Transforms/Utils/Local.h"
 using namespace llvm;
 
 bool llvm::InlineFunction(CallInst *CI, InlineFunctionInfo &IFI,
@@ -43,10 +43,10 @@ bool llvm::InlineFunction(InvokeInst *II, InlineFunctionInfo &IFI,
 namespace {
   /// A class for recording information about inlining through an invoke.
   class InvokeInliningInfo {
-    BasicBlock *OuterResumeDest; //< Destination of the invoke's unwind.
-    BasicBlock *InnerResumeDest; //< Destination for the callee's resume.
-    LandingPadInst *CallerLPad;  //< LandingPadInst associated with the invoke.
-    PHINode *InnerEHValuesPHI;   //< PHI for EH values from landingpad insts.
+    BasicBlock *OuterResumeDest; ///< Destination of the invoke's unwind.
+    BasicBlock *InnerResumeDest; ///< Destination for the callee's resume.
+    LandingPadInst *CallerLPad;  ///< LandingPadInst associated with the invoke.
+    PHINode *InnerEHValuesPHI;   ///< PHI for EH values from landingpad insts.
     SmallVector<Value*, 8> UnwindDestPHIValues;
 
   public:
@@ -357,7 +357,7 @@ static Value *HandleByValArgument(Value *Arg, Instruction *TheCall,
 
   Type *VoidPtrTy = Type::getInt8PtrTy(Context);
   
-  // Create the alloca.  If we have TargetData, use nice alignment.
+  // Create the alloca.  If we have DataLayout, use nice alignment.
   unsigned Align = 1;
   if (IFI.TD)
     Align = IFI.TD->getPrefTypeAlignment(AggTy);
@@ -668,10 +668,29 @@ bool llvm::InlineFunction(CallSite CS, InlineFunctionInfo &IFI,
       if (hasLifetimeMarkers(AI))
         continue;
 
-      builder.CreateLifetimeStart(AI);
+      // Try to determine the size of the allocation.
+      ConstantInt *AllocaSize = 0;
+      if (ConstantInt *AIArraySize =
+          dyn_cast<ConstantInt>(AI->getArraySize())) {
+        if (IFI.TD) {
+          Type *AllocaType = AI->getAllocatedType();
+          uint64_t AllocaTypeSize = IFI.TD->getTypeAllocSize(AllocaType);
+          uint64_t AllocaArraySize = AIArraySize->getLimitedValue();
+          assert(AllocaArraySize > 0 && "array size of AllocaInst is zero");
+          // Check that array size doesn't saturate uint64_t and doesn't
+          // overflow when it's multiplied by type size.
+          if (AllocaArraySize != ~0ULL &&
+              UINT64_MAX / AllocaArraySize >= AllocaTypeSize) {
+            AllocaSize = ConstantInt::get(Type::getInt64Ty(AI->getContext()),
+                                          AllocaArraySize * AllocaTypeSize);
+          }
+        }
+      }
+
+      builder.CreateLifetimeStart(AI, AllocaSize);
       for (unsigned ri = 0, re = Returns.size(); ri != re; ++ri) {
         IRBuilder<> builder(Returns[ri]);
-        builder.CreateLifetimeEnd(AI);
+        builder.CreateLifetimeEnd(AI, AllocaSize);
       }
     }
   }

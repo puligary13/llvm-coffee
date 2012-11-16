@@ -264,21 +264,6 @@ unsigned CoffeeRegisterInfo::getFrameRegister(const MachineFunction &MF) const {
 
 
 
-bool CoffeeRegisterInfo::
-needsStackRealignment(const MachineFunction &MF) const {
-  const MachineFrameInfo *MFI = MF.getFrameInfo();
-  const Function *F = MF.getFunction();
-  unsigned StackAlign = MF.getTarget().getFrameLowering()->getStackAlignment();
-  bool requiresRealignment = ((MFI->getMaxAlignment() > StackAlign) ||
-                               F->hasFnAttr(Attribute::StackAlignment));
-
-  if(requiresRealignment)
-      llvm_unreachable("coffee: the stack realignment is required but we don't support it for now");
-
-  return requiresRealignment && canRealignStack(MF);
-}
-
-
 bool CoffeeRegisterInfo::hasBasePointer(const MachineFunction &MF) const {
   const TargetFrameLowering *TFI = MF.getTarget().getFrameLowering();
 
@@ -286,7 +271,7 @@ bool CoffeeRegisterInfo::hasBasePointer(const MachineFunction &MF) const {
   if (!EnableBasePointer)
     return false;
 
-  if (needsStackRealignment(MF) && !TFI->hasReservedCallFrame(MF))
+  if (!TFI->hasReservedCallFrame(MF))
     return true;
 
   return false;
@@ -303,6 +288,5 @@ cannotEliminateFrame(const MachineFunction &MF) const {
   const MachineFrameInfo *MFI = MF.getFrameInfo();
   if (MF.getTarget().Options.DisableFramePointerElim(MF) && MFI->adjustsStack())
     return true;
-  return MFI->hasVarSizedObjects() || MFI->isFrameAddressTaken()
-    || needsStackRealignment(MF);
+  return MFI->hasVarSizedObjects() || MFI->isFrameAddressTaken();
 }

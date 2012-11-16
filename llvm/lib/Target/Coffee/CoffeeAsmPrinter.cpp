@@ -133,7 +133,7 @@ void CoffeeAsmPrinter::printSavedRegsBitmask(raw_ostream &O) {
   const MachineFrameInfo *MFI = MF->getFrameInfo();
   const std::vector<CalleeSavedInfo> &CSI = MFI->getCalleeSavedInfo();
   // size of stack area to which FP callee-saved regs are saved.
-  unsigned GPRCRegSize = Coffee::GPRCRegisterClass->getSize();
+  unsigned GPRCRegSize = Coffee::GPRCRegClass.getSize();
 
   unsigned i, e = CSI.size();
 

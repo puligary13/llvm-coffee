@@ -155,9 +155,7 @@ namespace {
 } // end anonymous namespace
 
 
-
-
-MCAsmBackend *llvm::createCoffeeAsmBackend(const Target &T, StringRef TT) {
+MCAsmBackend *llvm::createCoffeeAsmBackend(const Target &T, StringRef TT, StringRef CPU) {
   uint8_t OSABI = MCELFObjectTargetWriter::getOSABI(Triple(TT).getOS());
   return new ELFCoffeeAsmBackend(T, OSABI);
 }

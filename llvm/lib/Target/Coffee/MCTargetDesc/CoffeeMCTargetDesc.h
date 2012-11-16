@@ -23,6 +23,7 @@ class MCContext;
 class MCInstrInfo;
 class MCObjectWriter;
 class MCSubtargetInfo;
+class MCRegisterInfo;
 class Target;
 class StringRef;
 class raw_ostream;
@@ -30,10 +31,11 @@ class raw_ostream;
 extern Target TheCoffeeTarget;
   
 MCCodeEmitter *createCoffeeMCCodeEmitter(const MCInstrInfo &MCII,
+                                          const MCRegisterInfo &MRI,
                                       const MCSubtargetInfo &STI,
                                       MCContext &Ctx);
 
-MCAsmBackend *createCoffeeAsmBackend(const Target &T, StringRef TT);
+MCAsmBackend *createCoffeeAsmBackend(const Target &T, StringRef TT, StringRef CPU);
 
 /// createCoffeeELFObjectWriter - Construct an Coffee ELF object writer.
 MCObjectWriter *createCoffeeELFObjectWriter(raw_ostream &OS,
