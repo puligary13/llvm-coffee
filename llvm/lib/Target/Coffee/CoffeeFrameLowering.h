@@ -41,7 +41,7 @@ public:
 
     bool hasFP(const MachineFunction &MF) const;
 
-    bool targetHandlesStackFrameRounding() const;
+
 
     void processFunctionBeforeCalleeSavedScan(MachineFunction &MF,
                                               RegScavenger *RS = NULL) const;

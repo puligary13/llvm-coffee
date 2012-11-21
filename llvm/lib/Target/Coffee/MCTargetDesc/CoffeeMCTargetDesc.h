@@ -53,4 +53,7 @@ MCObjectWriter *createCoffeeELFObjectWriter(raw_ostream &OS,
 #define GET_INSTRINFO_ENUM
 #include "CoffeeGenInstrInfo.inc"
 
+#define GET_SUBTARGETINFO_ENUM
+#include "CoffeeGenSubtargetInfo.inc"
+
 #endif

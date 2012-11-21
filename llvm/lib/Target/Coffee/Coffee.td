@@ -27,11 +27,25 @@ include "CoffeeInstrInfo.td"
 // Calling Conventions
 //===----------------------------------------------------------------------===//
 
+
+def Feature32         : SubtargetFeature<"coffee32", "CoffeeABI", "ABI32",
+                                "Enable Coffee ABI32">;
+
 include "CoffeeCallingConv.td"
 
 def CoffeeInstrInfo : InstrInfo {
   let isLittleEndianEncoding = 1;
 }
+
+//===----------------------------------------------------------------------===//
+// Coffee processors supported.
+//===----------------------------------------------------------------------===//
+
+class Proc<string Name, list<SubtargetFeature> Features>
+ : Processor<Name, CoffeeGenericItineraries, Features>;
+
+def : Proc<"coffee32", [Feature32]>;
+
 
 def CoffeeAsmWriter : AsmWriter {
   string AsmWriterClassName  = "InstPrinter";

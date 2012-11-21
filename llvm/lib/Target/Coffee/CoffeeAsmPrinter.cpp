@@ -62,6 +62,8 @@ bool CoffeeAsmPrinter::runOnMachineFunction(MachineFunction &MF) {
   return true;
 }
 
+//#include "CoffeeGenMCPseudoLowering.inc"
+
 void CoffeeAsmPrinter::EmitInstruction(const MachineInstr *MI) {
   if (MI->isDebugValue()) {
     SmallString<128> Str;
@@ -71,18 +73,19 @@ void CoffeeAsmPrinter::EmitInstruction(const MachineInstr *MI) {
     return;
   }
 
-  unsigned Opc = MI->getOpcode();
-  MCInst TmpInst0;
-  SmallVector<MCInst, 4> MCInsts;
+  // Do any auto-generated pseudo lowerings.
+ // if (emitPseudoExpansionLowering(OutStreamer, MI))
+ //    return;
 
-  switch (Opc) {
+  MachineBasicBlock::const_instr_iterator I = MI;
+  MachineBasicBlock::const_instr_iterator E = MI->getParent()->instr_end();
 
-  default:
-    break;
-  }
+  do {
+    MCInst TmpInst0;
+    MCInstLowering.Lower(I++, TmpInst0);
 
-  MCInstLowering.Lower(MI, TmpInst0);
-  OutStreamer.EmitInstruction(TmpInst0);
+    OutStreamer.EmitInstruction(TmpInst0);
+  } while ((I != E) && I->isInsideBundle()); // Delay slot check
 }
 
 //===----------------------------------------------------------------------===//

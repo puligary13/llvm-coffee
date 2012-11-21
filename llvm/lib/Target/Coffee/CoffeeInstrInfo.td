@@ -485,6 +485,7 @@ def AND     : ArithLogicR<0b000000, "and", and, IIAlu, GPRC>;
 def OR      : ArithLogicR<0b000000, "or",  or, IIAlu, GPRC>;
 def XOR     : ArithLogicR<0b000000, "xor", xor, IIAlu, GPRC>;
 
+
 /// Load and Store Instructions
 ///  aligned
 
@@ -504,6 +505,13 @@ def SW      : StoreM<0x00, "sw", store_a,  GPRC, MEMri, 1>;
   def : Pat<(i32 (extloadi16_a addr:$src)), (LHu addr:$src)>;
 
 
+//Instruction without pattern
+
+def Mov     : InstCoffee<(outs GPRC:$dst),
+                         (ins GPRC:$src),
+"mov\t$dst,\t$src",
+[], IILoad, FrmFI> {
+}
 
 //load lower half, no pattern, use for store constant to a register
 def Loadlinp : InstCoffee<(outs GPRC:$dst),

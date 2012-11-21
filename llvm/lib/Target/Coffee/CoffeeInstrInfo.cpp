@@ -46,6 +46,8 @@ CoffeeInstrInfo::commuteInstruction(MachineInstr *MI, bool NewMI) const {
 
 void CoffeeInstrInfo::insertNoop(MachineBasicBlock &MBB,
                               MachineBasicBlock::iterator MI) const {
+    DebugLoc DL;
+    BuildMI(MBB, MI, DL, get(Coffee::NOP));
 }
 
 bool CoffeeInstrInfo::AnalyzeBranch(MachineBasicBlock &MBB,MachineBasicBlock *&TBB,
@@ -69,7 +71,23 @@ void CoffeeInstrInfo::copyPhysReg(MachineBasicBlock &MBB,
                                MachineBasicBlock::iterator I, DebugLoc DL,
                                unsigned DestReg, unsigned SrcReg,
                                bool KillSrc) const {
-}
+    unsigned Opc = 0;
+
+    if (Coffee::GPRCRegClass.contains(DestReg)) { // Copy to CPU Reg.
+      if (Coffee::GPRCRegClass.contains(SrcReg))
+        Opc = Coffee::Mov;
+    }
+
+    assert(Opc && "Cannot copy registers");
+
+    MachineInstrBuilder MIB = BuildMI(MBB, I, DL, get(Opc));
+
+    if (DestReg)
+      MIB.addReg(DestReg, RegState::Define);
+
+    if (SrcReg)
+      MIB.addReg(SrcReg, getKillRegState(KillSrc));
+  }
 
 
 static MachineMemOperand* GetMemOperand(MachineBasicBlock &MBB, int FI,

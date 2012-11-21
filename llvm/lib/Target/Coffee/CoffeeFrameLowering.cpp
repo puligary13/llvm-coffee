@@ -273,9 +273,6 @@ static unsigned estimateRSStackSizeLimit(MachineFunction &MF,
 }
 
 
-bool CoffeeFrameLowering::targetHandlesStackFrameRounding() const {
-  return true;
-}
 
 void
 CoffeeFrameLowering::processFunctionBeforeCalleeSavedScan(MachineFunction &MF,
