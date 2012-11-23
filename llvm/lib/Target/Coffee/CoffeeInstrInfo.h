@@ -32,8 +32,6 @@ public:
 
   virtual const CoffeeRegisterInfo &getRegisterInfo() const { return RI;}
 
-  virtual MachineInstr *commuteInstruction(MachineInstr *MI, bool NewMI) const;
-
   virtual void insertNoop(MachineBasicBlock &MBB,
                           MachineBasicBlock::iterator MI) const;
 
@@ -74,13 +72,23 @@ public:
   bool ReverseBranchCondition(SmallVectorImpl<MachineOperand> &Cond) const;
 
   virtual unsigned GetInstSizeInBytes(const MachineInstr *MI) const;
+
+  unsigned GetOppositeBranchOpc(unsigned Opc) const;
+
+  unsigned loadImmediate(int64_t Imm, MachineBasicBlock &MBB,
+                                 MachineBasicBlock::iterator II, DebugLoc DL,
+                                 unsigned *NewImm) const;
+
+  void adjustStackPtr(unsigned SP, int64_t Amount,
+                                       MachineBasicBlock &MBB,
+                                       MachineBasicBlock::iterator I) const;
+
+  bool expandPostRAPseudo(MachineBasicBlock::iterator MI) const;
+
+  void ExpandRetLR(MachineBasicBlock &MBB,
+                                  MachineBasicBlock::iterator I,
+                                  unsigned Opc) const;
 };
-
-
-void emitCoffeeRegPlusImmediate(MachineBasicBlock &MBB,
-                             MachineBasicBlock::iterator &MBBI, DebugLoc dl,
-                             unsigned DestReg, unsigned BaseReg, int NumBytes,
-                             const TargetInstrInfo &TII, unsigned MIFlags = 0);
 
 }
 

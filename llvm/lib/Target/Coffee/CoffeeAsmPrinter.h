@@ -16,7 +16,7 @@
 
 #include "CoffeeMachineFunctionInfo.h"
 #include "CoffeeMCInstLower.h"
-
+#include "CoffeeSubtarget.h"
 #include "llvm/CodeGen/AsmPrinter.h"
 #include "llvm/Support/Compiler.h"
 #include "llvm/Target/TargetMachine.h"
@@ -33,6 +33,9 @@ class LLVM_LIBRARY_VISIBILITY CoffeeAsmPrinter : public AsmPrinter {
   void EmitInstrWithMacroNoAT(const MachineInstr *MI);
 
 public:
+
+  bool emitPseudoExpansionLowering(MCStreamer &OutStreamer,
+                                   const MachineInstr *MI);
 
   const CoffeeFunctionInfo *CoffeeFI;
   CoffeeMCInstLower MCInstLowering;

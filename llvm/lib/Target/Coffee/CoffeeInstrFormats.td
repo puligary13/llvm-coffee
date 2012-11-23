@@ -120,7 +120,3 @@ class InstCoffee_0<bits<6> opcode, dag outs, dag ins, string asmstr, list<dag> p
   let Inst{25} = 0;
 }
 
-// for pseudo instruction
-class Pseudo<dag outs, dag ins, string asmstr, list<dag> pattern>
-   : InstCoffee_0<0b000000,outs, ins, asmstr, pattern>;
-

@@ -45,7 +45,7 @@ def COFFEEcall          : SDNode<"COFFEEISD::CALL", SDT_COFFEEcall,
                               [SDNPHasChain, SDNPOptInGlue, SDNPOutGlue,
                                SDNPVariadic]>;
 
-def COFFEEret         : SDNode<"COFFEEISD::RET", SDT_COFFEERet,
+def COFFEEret         : SDNode<"COFFEEISD::RET", SDTNone,
                               [SDNPHasChain, SDNPOptInGlue]>;
 
 //guoqing: this might be needed when we need to sup
@@ -136,7 +136,7 @@ class FMem<bits<6> op, dag outs, dag ins, string asmstr, list<dag> pattern,
 
 // arithmetic instructions
 
-def ADDrr : InstCoffee_0<0b000001,
+/*def ADDrr : InstCoffee_0<0b000001,
                        (outs GPRC:$Rd),
                        (ins GPRC:$R1, GPRC:$R2),
                        "add\t$Rd,\t$R1,\t$R2",
@@ -147,9 +147,9 @@ def ADDrr : InstCoffee_0<0b000001,
                        let Inst{14-10} = R2;
                        let Inst{9-5} = R1;
                        let Inst{4-0} = Rd;
-                       }
+                       }*/
 
-def ADDri : InstCoffee_0<0b101101,
+/*def ADDri : InstCoffee_0<0b101101,
                        (outs GPRC:$Rd),
                        (ins GPRC:$R1, i32imm:$R2), //we have 15bits
                        "addi\t$Rd,\t$R1,\t$R2",
@@ -160,7 +160,7 @@ def ADDri : InstCoffee_0<0b101101,
                        let Inst{24-10} = R2;
                        let Inst{9-5} = R1;
                        let Inst{4-0} = Rd;
-                       }
+                       }*/
 
 
 /*def ORrr : InstCoffee_0<0b001011, (outs GPRC:$dst), (ins GPRC:$r1, GPRC:$r2),
@@ -189,20 +189,6 @@ def ORri : InstCoffee_0<0b101010, (outs GPRC:$dst), (ins GPRC:$r1, i32imm:$r2),
 
 //  Control Flow Instructions.
 
-
-let isReturn=1, isTerminator=1, hasDelaySlot=1, isCodeGenOnly=1,
-    isBarrier=1 in
-  def RET : FR <0b011011, (outs), (ins GPRC:$target),
-                "jmpr\t$target", [(COFFEEret GPRC:$target)], IIBranch>;
-
-/*let isReturn = 1, isTerminator = 1, isBarrier = 1 in {
-  def JMPR_RET : InstCoffee_0<0b011011,
-                       (outs),
-                       (ins),
-                       "jmpr\tlr", [(COFFEEretflag)]> {
-                       let Inst{9-5} = 0b11111;
-                       }
-}*/
 
 let isCall = 1, Defs = [LR], hasDelaySlot=1 in {
   def JALR_CALL : InstCoffee_0<0b011011,
@@ -253,17 +239,28 @@ class EffectiveAddress<string instr_asm, RegisterClass RC, Operand Mem> :
      instr_asm, [(set RC:$rt, addr:$addr)], IIAlu>;
 
 
+// Base class for indirect branch and return instruction classes.
+let isTerminator=1, isBarrier=1, hasDelaySlot = 1 in
+class JumpFR<RegisterClass RC, SDPatternOperator operator = null_frag>:
+  FR<0, (outs), (ins RC:$rs), "jmpr\t$rs", [(operator RC:$rs)], IIBranch> {
 
 
-class JumpFR<bits<6> op, string instr_asm, RegisterClass RC>:
-  FR<op, (outs), (ins RC:$rs),
-     !strconcat(instr_asm, "\t$rs"), [(brind RC:$rs)], IIBranch> {
-  let isBranch=1;
-  let isTerminator = 1;
-  let isBarrier = 1;
-  let hasDelaySlot = 1;
+}
+
+// Indirect branch
+class IndirectBranch<RegisterClass RC>: JumpFR<RC, brind> {
+  let isBranch = 1;
   let isIndirectBranch = 1;
 }
+
+// Return instruction
+class RetBase<RegisterClass RC>: JumpFR<RC> {
+  let isReturn = 1;
+  let isCodeGenOnly = 1;
+  let hasCtrlDep = 1;
+  let hasExtraSrcRegAllocReq = 1;
+}
+
 
 
 
@@ -289,7 +286,7 @@ class CBranch<bits<6> op, string instr_asm, PatFrag cond_op>:
 }
 
 def JMP       : JumpFJ<0b000000, "jmp">;
-def JMPR      : JumpFR<0b000000, "jmpr", GPRC>;
+def JMPR      : IndirectBranch<GPRC>;
 //def JAL       : JumpLink<0b000000, "jal">;
 //def JALR      : JumpLinkReg<0b000000, "jalr", GPRC>;
 
@@ -299,6 +296,8 @@ def BEQ     :  CBranch<0b000000, "beq", seteq>;
 def BGT     :  CBranch<0b000000, "bgt", setgt>;
 def BLT     :  CBranch<0b000000, "blt", setlt>;
 def BNE     :  CBranch<0b000000, "bne", setne>;
+
+def RET : RetBase<GPRC>;
 
 //def NOP     :  SI<0b111010, "nop">;
 
@@ -569,13 +568,18 @@ def Loaduinp : InstCoffee<(outs GPRC:$dst),
 
 // pseudo instruction definition
 
-def ADJCALLSTACKDOWN : Pseudo<(outs), (ins i32imm:$amt),
+// Return LR.
+let isReturn=1, isTerminator=1, hasDelaySlot=1, isBarrier=1, hasCtrlDep=1 in
+def RetLR : CoffeePseudo<(outs), (ins), "", [(COFFEEret)]>;
+
+let Defs = [SP], Uses = [SP], hasSideEffects = 1 in {
+def ADJCALLSTACKDOWN : CoffeePseudo<(outs), (ins i32imm:$amt),
                                "!ADJCALLSTACKDOWN $amt",
                                [(callseq_start timm:$amt)]>;
-def ADJCALLSTACKUP : Pseudo<(outs), (ins i32imm:$amt1, i32imm:$amt2),
+def ADJCALLSTACKUP : CoffeePseudo<(outs), (ins i32imm:$amt1, i32imm:$amt2),
                             "!ADJCALLSTACKUP $amt1",
                             [(callseq_end timm:$amt1, timm:$amt2)]>;
-
+}
 
 
 // immediates definition
@@ -647,10 +651,10 @@ class shift_reg<bits<6> opcode, string instr_asm,
 
 }
 
-
-def SLLI     : shift_imm32<0b000000, "slli", shl>;
-def SRLI     : shift_imm32<0b000000, "srli", srl>;
-def SRAI     : shift_imm32<0b000000, "srai", sra>;
+//shift instruction
+def SLL     : shift_imm32<0b000000, "slli", shl>;
+def SRL     : shift_imm32<0b000000, "srli", srl>;
+def SRA     : shift_imm32<0b000000, "srai", sra>;
 def SLLR    : shift_reg<0b000000, "sll", shl, GPRC>;
 def SRLR    : shift_reg<0b000000, "srl", srl, GPRC>;
 def SRAR    : shift_reg<0b000000, "sra", sra, GPRC>;

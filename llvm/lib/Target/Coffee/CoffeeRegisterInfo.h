@@ -17,50 +17,66 @@
 
 #include "Coffee.h"
 #include "llvm/Target/TargetRegisterInfo.h"
+#include "CoffeeSubtarget.h"
+#include "CoffeeRegisterInfo.h"
 
 #define GET_REGINFO_HEADER
 #include "CoffeeGenRegisterInfo.inc"
 
 namespace llvm {
-class TargetInstrInfo;
+class CoffeeInstrInfo;
 class Type;
 
 class CoffeeRegisterInfo : public CoffeeGenRegisterInfo {
-  const TargetInstrInfo &TII;
-  unsigned FramePtr;
-  /// BasePtr - ARM physical register used as a base ptr in complex stack
-  /// frames. I.e., when we need a 3rd base, not just SP and FP, due to
-  /// variable size stack objects.
-  unsigned BasePtr;
+  const CoffeeInstrInfo &TII;
+  const CoffeeSubtarget &Subtarget;
 
 public:
-  CoffeeRegisterInfo(const TargetInstrInfo &tii);
+  CoffeeRegisterInfo(const CoffeeInstrInfo &tii, const CoffeeSubtarget &Subtarget);
+
+  /// getRegisterNumbering - Given the enum value for some register, e.g.
+  /// Coffee::LR, return the number that it corresponds to (e.g. 31).
+  static unsigned getRegisterNumbering(unsigned RegEnum);
+
+  /// Get PIC indirect call register
+  static unsigned getPICCallReg();
+
+  /// Adjust the Coffee stack frame.
+  void adjustCoffeeStackFrame(MachineFunction &MF) const;
 
   /// Code Generation virtual methods...
-  const uint16_t *getCalleeSavedRegs(const MachineFunction* MF = 0) const;
-
-  const uint32_t* getCallPreservedMask(CallingConv::ID) const;
+  const uint16_t *getCalleeSavedRegs(const MachineFunction *MF = 0) const;
+  const uint32_t *getCallPreservedMask(CallingConv::ID) const;
 
   BitVector getReservedRegs(const MachineFunction &MF) const;
 
-  void eliminateCallFramePseudoInstr(MachineFunction &MF,
-                                     MachineBasicBlock &MBB,
-                                     MachineBasicBlock::iterator I) const;
+  virtual bool requiresRegisterScavenging(const MachineFunction &MF) const;
 
+  bool requiresFrameIndexScavenging(const MachineFunction &MF) const;
+
+  virtual bool trackLivenessAfterRegAlloc(const MachineFunction &MF) const;
+
+  /// Stack Frame Processing Methods
   void eliminateFrameIndex(MachineBasicBlock::iterator II,
                            int SPAdj, RegScavenger *RS = NULL) const;
 
   void processFunctionBeforeFrameFinalized(MachineFunction &MF) const;
 
+  /// Debug information queries.
   unsigned getFrameRegister(const MachineFunction &MF) const;
 
-  bool canRealignStack(const MachineFunction &MF) const;
+  /// Exception handling queries.
+  unsigned getEHExceptionRegister() const;
+  unsigned getEHHandlerRegister() const;
 
-  bool cannotEliminateFrame(const MachineFunction &MF) const;
+  void eliminateCallFramePseudoInstr(MachineFunction &MF,
+                                                         MachineBasicBlock &MBB,
+                                                         MachineBasicBlock::iterator I) const;
 
-  bool hasBasePointer(const MachineFunction &MF) const;
-
-  unsigned getBaseRegister() const { return BasePtr; }
+private:
+  void eliminateFI(MachineBasicBlock::iterator II, unsigned OpNo,
+                           int FrameIndex, uint64_t StackSize,
+                           int64_t SPOffset) const;
 };
 
 

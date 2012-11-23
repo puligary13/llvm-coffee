@@ -8,6 +8,7 @@ tablegen(LLVM CoffeeGenInstrInfo.inc -gen-instr-info)
 tablegen(LLVM CoffeeGenDAGISel.inc -gen-dag-isel)
 tablegen(LLVM CoffeeGenCallingConv.inc -gen-callingconv)
 tablegen(LLVM CoffeeGenSubtargetInfo.inc -gen-subtarget)
+tablegen(LLVM CoffeeGenMCPseudoLowering.inc -gen-pseudo-lowering)
 
 add_public_tablegen_target(CoffeeCommonTableGen)
 
@@ -15,6 +16,7 @@ add_llvm_target(CoffeeCodeGen
   CoffeeAsmPrinter.cpp
   CoffeeBranchSelector.cpp
   CoffeeCodeEmitter.cpp
+  CoffeeAnalyzeImmediate.cpp
   CoffeeHazardRecognizers.cpp
   CoffeeInstrInfo.cpp
   CoffeeISelDAGToDAG.cpp
@@ -33,3 +35,5 @@ add_llvm_target(CoffeeCodeGen
 add_subdirectory(InstPrinter)
 add_subdirectory(TargetInfo)
 add_subdirectory(MCTargetDesc)
+
+

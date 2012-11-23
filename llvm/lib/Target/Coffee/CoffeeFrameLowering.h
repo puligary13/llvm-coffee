@@ -32,9 +32,6 @@ public:
     }
 
 
-    int ResolveFrameIndexReference(const MachineFunction &MF,
-                                   int FI, unsigned &FrameReg,
-                                   int SPAdj) const;
 
     void emitPrologue(MachineFunction &MF) const;
     void emitEpilogue(MachineFunction &MF, MachineBasicBlock &MBB) const;
@@ -45,32 +42,17 @@ public:
 
     void processFunctionBeforeCalleeSavedScan(MachineFunction &MF,
                                               RegScavenger *RS = NULL) const;
-    void processFunctionBeforeFrameFinalized(MachineFunction &MF) const;
 
-  /*  bool spillCalleeSavedRegisters(MachineBasicBlock &MBB,
-                                   MachineBasicBlock::iterator MI,
-                                   const std::vector<CalleeSavedInfo> &CSI,
-                                   const TargetRegisterInfo *TRI) const;
+    bool
+    hasReservedCallFrame(const MachineFunction &MF) const;
 
-    bool restoreCalleeSavedRegisters(MachineBasicBlock &MBB,
-                                     MachineBasicBlock::iterator MI,
-                                     const std::vector<CalleeSavedInfo> &CSI,
-                                     const TargetRegisterInfo *TRI) const;*/
+    uint64_t estimateStackSize(const MachineFunction &MF) const;
 
-    void emitPopInst(MachineBasicBlock &MBB,
-                                       MachineBasicBlock::iterator MI,
-                                       const std::vector<CalleeSavedInfo> &CSI,
-                                       unsigned LdrOpc,
-                                       unsigned StackSize,
-                                       bool isVarArg,
-                                       unsigned NumAlignedDPRCS2Regs) const;
+    bool spillCalleeSavedRegisters(MachineBasicBlock &MBB,
+                                            MachineBasicBlock::iterator MI,
+                                            const std::vector<CalleeSavedInfo> &CSI,
+                                            const TargetRegisterInfo *TRI) const;
 
-    void emitPushInst(MachineBasicBlock &MBB,
-                                        MachineBasicBlock::iterator MI,
-                                        const std::vector<CalleeSavedInfo> &CSI,
-                                        unsigned StrOpc,
-                                        unsigned StackSize,
-                                        unsigned MIFlags) const;
 };
 
 } // End llvm namespace

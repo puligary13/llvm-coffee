@@ -356,22 +356,34 @@ CoffeeTargetLowering::LowerFormalArguments(SDValue Chain,
     SmallVector<CCValAssign, 16> ArgLocs;
     CCState CCInfo(CallConv, isVarArg, DAG.getMachineFunction(),
                    getTargetMachine(), ArgLocs, *DAG.getContext());
+    CoffeeCC CoffeeCCInfo(CallConv, isVarArg, CCInfo);
 
+    CoffeeCCInfo.analyzeFormalArguments(Ins);
 
-    CCInfo.AnalyzeFormalArguments(Ins, CC_Coffee);
+    CoffeeFI->setFormalArgInfo(CCInfo.getNextStackOffset(),
+                               CoffeeCCInfo.hasByValArg());
 
     Function::const_arg_iterator FuncArg =
       DAG.getMachineFunction().getFunction()->arg_begin();
-    int LastFI = 0;// CoffeeFI->LastInArgFI is 0 at the entry of this function.
+    unsigned CurArgIdx = 0;
+    CoffeeCC::byval_iterator ByValArg = CoffeeCCInfo.byval_begin();
 
-    for (unsigned i = 0, e = ArgLocs.size(); i != e; ++i, ++FuncArg) {
+    for (unsigned i = 0, e = ArgLocs.size(); i != e; ++i) {
       CCValAssign &VA = ArgLocs[i];
+      std::advance(FuncArg, Ins[i].OrigArgIndex - CurArgIdx);
+      CurArgIdx = Ins[i].OrigArgIndex;
       EVT ValVT = VA.getValVT();
       ISD::ArgFlagsTy Flags = Ins[i].Flags;
       bool IsRegLoc = VA.isRegLoc();
 
       if (Flags.isByVal()) {
-          llvm_unreachable("coffee: don't support isByVal type for now");
+        assert(Flags.getByValSize() &&
+               "ByVal args of size 0 should have been ignored by front-end.");
+        assert(ByValArg != CoffeeCCInfo.byval_end());
+        copyByValRegs(Chain, dl, OutChains, DAG, Flags, InVals, &*FuncArg,
+                      CoffeeCCInfo, *ByValArg);
+        ++ByValArg;
+        continue;
       }
 
       // Arguments stored on registers
@@ -420,13 +432,13 @@ CoffeeTargetLowering::LowerFormalArguments(SDValue Chain,
         assert(VA.isMemLoc());
 
         // The stack pointer offset is relative to the caller stack frame.
-        LastFI = MFI->CreateFixedObject(ValVT.getSizeInBits()/8,
+        int FI = MFI->CreateFixedObject(ValVT.getSizeInBits()/8,
                                         VA.getLocMemOffset(), true);
 
         // Create load nodes to retrieve arguments from the stack
-        SDValue FIN = DAG.getFrameIndex(LastFI, getPointerTy());
+        SDValue FIN = DAG.getFrameIndex(FI, getPointerTy());
         InVals.push_back(DAG.getLoad(ValVT, dl, Chain, FIN,
-                                     MachinePointerInfo::getFixedStack(LastFI),
+                                     MachinePointerInfo::getFixedStack(FI),
                                      false, false, false, 0));
       }
     }
@@ -446,9 +458,7 @@ CoffeeTargetLowering::LowerFormalArguments(SDValue Chain,
     }
 
     if (isVarArg)
-        llvm_unreachable("coffee: is var arg");
-
-    CoffeeFI->setLastInArgFI(LastFI);
+        writeVarArgRegs(OutChains, CoffeeCCInfo, Chain, dl, DAG);
 
     // All stores are grouped in one node to allow the matching between
     // the size of Ins and InVals. This only happens when on varg functions
@@ -540,17 +550,17 @@ CoffeeTargetLowering::LowerReturn(SDValue Chain,
 
       Chain = DAG.getCopyToReg(Chain, dl, Coffee::V0, Val, Flag);
 
-
       Flag = Chain.getValue(1);
+      MF.getRegInfo().addLiveOut(Coffee::V0);
     }
 
-    SDValue result;
-    if (Flag.getNode()) {
-        result = DAG.getNode(COFFEEISD::RET, dl, MVT::Other, Chain, DAG.getRegister(Coffee::LR, MVT::i32), Flag);
 
-    } else // Return Void
-      result = DAG.getNode(COFFEEISD::RET, dl, MVT::Other, Chain, DAG.getRegister(Coffee::LR, MVT::i32));
-    return result;
+    if (Flag.getNode())
+        return DAG.getNode(COFFEEISD::RET, dl, MVT::Other, Chain, Flag);
+
+
+   return DAG.getNode(COFFEEISD::RET, dl, MVT::Other, Chain);
+
   }
 
 const char * CoffeeTargetLowering::getTargetNodeName(unsigned Opcode) const {
@@ -675,16 +685,16 @@ CoffeeTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
       // ByVal Arg.
       if (Flags.isByVal()) {
 
-          llvm_unreachable("coffee: struct is passed by value");
-        /*assert(Flags.getByValSize() &&
+
+        assert(Flags.getByValSize() &&
                "ByVal args of size 0 should have been ignored by front-end.");
         assert(ByValArg != CoffeeCCInfo.byval_end());
         assert(!isTailCall &&
                "Do not tail-call optimize if there is a byval argument.");
         passByValArg(Chain, dl, RegsToPass, MemOpChains, StackPtr, MFI, DAG, Arg,
-                     CoffeeCCInfo, *ByValArg, Flags, Subtarget->isLittle());
+                     CoffeeCCInfo, *ByValArg, Flags, true); // little endian
         ++ByValArg;
-        continue;*/
+        continue;
       }
 
       // Promote the value if needed.
@@ -910,21 +920,18 @@ CoffeeTargetLowering::LowerCallResult(SDValue Chain, SDValue InFlag,
 }
 
 
-
 SDValue CoffeeTargetLowering::LowerFRAMEADDR(SDValue Op, SelectionDAG &DAG) const {
-  MachineFrameInfo *MFI = DAG.getMachineFunction().getFrameInfo();
-  MFI->setFrameAddressIsTaken(true);
+    // check the depth
+    assert((cast<ConstantSDNode>(Op.getOperand(0))->getZExtValue() == 0) &&
+           "Frame address can only be determined for current frame.");
 
-  EVT VT = Op.getValueType();
-  DebugLoc dl = Op.getDebugLoc();  // FIXME probably not meaningful
-  unsigned Depth = cast<ConstantSDNode>(Op.getOperand(0))->getZExtValue();
-  unsigned FrameReg = Coffee::FP;
-  SDValue FrameAddr = DAG.getCopyFromReg(DAG.getEntryNode(), dl, FrameReg, VT);
-  while (Depth--)
-    FrameAddr = DAG.getLoad(VT, dl, DAG.getEntryNode(), FrameAddr,
-                            MachinePointerInfo(),
-                            false, false, false, 0);
-  return FrameAddr;
+    MachineFrameInfo *MFI = DAG.getMachineFunction().getFrameInfo();
+    MFI->setFrameAddressIsTaken(true);
+    EVT VT = Op.getValueType();
+    DebugLoc dl = Op.getDebugLoc();
+    SDValue FrameAddr = DAG.getCopyFromReg(DAG.getEntryNode(), dl,
+                                           Coffee::FP, VT);
+    return FrameAddr;
 }
 
 SDValue CoffeeTargetLowering::LowerOperation(SDValue Op, SelectionDAG &DAG) const {
@@ -932,7 +939,7 @@ SDValue CoffeeTargetLowering::LowerOperation(SDValue Op, SelectionDAG &DAG) cons
     //need to recheck this part when we start to implement the float point support
   switch (Op.getOpcode()) {
   default: llvm_unreachable("Don't know how to custom lower this!");
-  case ISD::FRAMEADDR:
+
   case ISD::BRCOND:
   case ISD::ConstantPool:
 
@@ -951,12 +958,33 @@ SDValue CoffeeTargetLowering::LowerOperation(SDValue Op, SelectionDAG &DAG) cons
   case ISD::BlockAddress: return LowerBlockAddress(Op, DAG);
   case ISD::JumpTable: return     LowerJumpTable(Op, DAG);
   case ISD::GlobalAddress: return LowerGlobalAddress(Op, DAG);
-  case ISD::DYNAMIC_STACKALLOC: return LowerDYNAMIC_STACKALLOC(Op, DAG);
   case ISD::BR_CC: return LowerBR_CC(Op, DAG);
   case ISD::ADD: return LowerADD(Op, DAG);
+  case ISD::RETURNADDR: return LowerRETURNADDR(Op, DAG);
+  case ISD::FRAMEADDR: return LowerFRAMEADDR(Op, DAG);
 
   }
 }
+
+
+
+SDValue CoffeeTargetLowering::LowerRETURNADDR(SDValue Op,
+                                            SelectionDAG &DAG) const {
+  // check the depth
+  assert((cast<ConstantSDNode>(Op.getOperand(0))->getZExtValue() == 0) &&
+         "Return address can be determined only for current frame.");
+
+  MachineFunction &MF = DAG.getMachineFunction();
+  MachineFrameInfo *MFI = MF.getFrameInfo();
+  EVT VT = Op.getValueType();
+  unsigned LR = Coffee::LR;
+  MFI->setReturnAddressIsTaken(true);
+
+  // Return LR, which contains the return address. Mark it an implicit live-in.
+  unsigned Reg = MF.addLiveIn(LR, getRegClassFor(VT));
+  return DAG.getCopyFromReg(DAG.getEntryNode(), Op.getDebugLoc(), Reg, VT);
+}
+
 
 SDValue CoffeeTargetLowering::LowerADD(SDValue Op, SelectionDAG &DAG) const {
   if (Op->getOperand(0).getOpcode() != ISD::FRAMEADDR
@@ -1016,43 +1044,6 @@ LowerJumpTable(SDValue Op, SelectionDAG &DAG) const
 
 
 }
-
-SDValue CoffeeTargetLowering::
-LowerDYNAMIC_STACKALLOC(SDValue Op, SelectionDAG &DAG) const
-{
-  MachineFunction &MF = DAG.getMachineFunction();
-  CoffeeFunctionInfo *CoffeeFI = MF.getInfo<CoffeeFunctionInfo>();
-  unsigned SP = Coffee::SP;
-
-  assert(getTargetMachine().getFrameLowering()->getStackAlignment() >=
-         cast<ConstantSDNode>(Op.getOperand(2).getNode())->getZExtValue() &&
-         "Cannot lower if the alignment of the allocated space is larger than \
-          that of the stack.");
-
-  SDValue Chain = Op.getOperand(0);
-  SDValue Size = Op.getOperand(1);
-  DebugLoc dl = Op.getDebugLoc();
-
-  // Get a reference from Coffee stack pointer
-  SDValue StackPointer = DAG.getCopyFromReg(Chain, dl, SP, getPointerTy());
-
-  // Subtract the dynamic size from the actual stack size to
-  // obtain the new stack size.
-  SDValue Sub = DAG.getNode(ISD::SUB, dl, getPointerTy(), StackPointer, Size);
-
-  // The Sub result contains the new stack start address, so it
-  // must be placed in the stack pointer register.
-  Chain = DAG.getCopyToReg(StackPointer.getValue(1), dl, SP, Sub, SDValue());
-
-  // This node always has two return values: a new stack pointer
-  // value and a chain
-  SDVTList VTLs = DAG.getVTList(getPointerTy(), MVT::Other);
-  SDValue Ptr = DAG.getFrameIndex(CoffeeFI->getDynAllocFI(), getPointerTy());
-  SDValue Ops[] = { Chain, Ptr, Chain.getValue(1) };
-
-  return DAG.getNode(COFFEEISD::DynAlloc, dl, VTLs, Ops, 3);
-}
-
 
 
 SDValue CoffeeTargetLowering::LowerGlobalAddress(SDValue Op,
@@ -1246,5 +1237,189 @@ void CoffeeTargetLowering::CoffeeCC::allocateRegs(ByValArgInfo &ByVal,
     CCInfo.AllocateReg(IntArgRegs[I], ShadowRegs[I]);
 }
 
+void CoffeeTargetLowering::
+copyByValRegs(SDValue Chain, DebugLoc DL, std::vector<SDValue> &OutChains,
+              SelectionDAG &DAG, const ISD::ArgFlagsTy &Flags,
+              SmallVectorImpl<SDValue> &InVals, const Argument *FuncArg,
+              const CoffeeCC &CC, const ByValArgInfo &ByVal) const {
+  MachineFunction &MF = DAG.getMachineFunction();
+  MachineFrameInfo *MFI = MF.getFrameInfo();
+  unsigned RegAreaSize = ByVal.NumRegs * CC.regSize();
+  unsigned FrameObjSize = std::max(Flags.getByValSize(), RegAreaSize);
+  int FrameObjOffset;
+
+  if (RegAreaSize)
+    FrameObjOffset = (int)CC.reservedArgArea() -
+      (int)((CC.numIntArgRegs() - ByVal.FirstIdx) * CC.regSize());
+  else
+    FrameObjOffset = ByVal.Address;
+
+  // Create frame object.
+  EVT PtrTy = getPointerTy();
+  int FI = MFI->CreateFixedObject(FrameObjSize, FrameObjOffset, true);
+  SDValue FIN = DAG.getFrameIndex(FI, PtrTy);
+  InVals.push_back(FIN);
+
+  if (!ByVal.NumRegs)
+    return;
+
+  // Copy arg registers.
+  EVT RegTy = MVT::getIntegerVT(CC.regSize() * 8);
+  const TargetRegisterClass *RC = getRegClassFor(RegTy);
+
+  for (unsigned I = 0; I < ByVal.NumRegs; ++I) {
+    unsigned ArgReg = CC.intArgRegs()[ByVal.FirstIdx + I];
+    unsigned VReg = AddLiveIn(MF, ArgReg, RC);
+    unsigned Offset = I * CC.regSize();
+    SDValue StorePtr = DAG.getNode(ISD::ADD, DL, PtrTy, FIN,
+                                   DAG.getConstant(Offset, PtrTy));
+    SDValue Store = DAG.getStore(Chain, DL, DAG.getRegister(VReg, RegTy),
+                                 StorePtr, MachinePointerInfo(FuncArg, Offset),
+                                 false, false, 0);
+    OutChains.push_back(Store);
+  }
+}
+
+// Copy byVal arg to registers and stack.
+void CoffeeTargetLowering::
+passByValArg(SDValue Chain, DebugLoc DL,
+             SmallVector<std::pair<unsigned, SDValue>, 16> &RegsToPass,
+             SmallVector<SDValue, 8> &MemOpChains, SDValue StackPtr,
+             MachineFrameInfo *MFI, SelectionDAG &DAG, SDValue Arg,
+             const CoffeeCC &CC, const ByValArgInfo &ByVal,
+             const ISD::ArgFlagsTy &Flags, bool isLittle) const {
+  unsigned ByValSize = Flags.getByValSize();
+  unsigned Offset = 0; // Offset in # of bytes from the beginning of struct.
+  unsigned RegSize = CC.regSize();
+  unsigned Alignment = std::min(Flags.getByValAlign(), RegSize);
+  EVT PtrTy = getPointerTy(), RegTy = MVT::getIntegerVT(RegSize * 8);
+
+  if (ByVal.NumRegs) {
+    const uint16_t *ArgRegs = CC.intArgRegs();
+    bool LeftoverBytes = (ByVal.NumRegs * RegSize > ByValSize);
+    unsigned I = 0;
+
+    // Copy words to registers.
+    for (; I < ByVal.NumRegs - LeftoverBytes; ++I, Offset += RegSize) {
+      SDValue LoadPtr = DAG.getNode(ISD::ADD, DL, PtrTy, Arg,
+                                    DAG.getConstant(Offset, PtrTy));
+      SDValue LoadVal = DAG.getLoad(RegTy, DL, Chain, LoadPtr,
+                                    MachinePointerInfo(), false, false, false,
+                                    Alignment);
+      MemOpChains.push_back(LoadVal.getValue(1));
+      unsigned ArgReg = ArgRegs[ByVal.FirstIdx + I];
+      RegsToPass.push_back(std::make_pair(ArgReg, LoadVal));
+    }
+
+    // Return if the struct has been fully copied.
+    if (ByValSize == Offset)
+      return;
+
+    // Copy the remainder of the byval argument with sub-word loads and shifts.
+    if (LeftoverBytes) {
+      assert((ByValSize > Offset) && (ByValSize < Offset + RegSize) &&
+             "Size of the remainder should be smaller than RegSize.");
+      SDValue Val;
+
+      for (unsigned LoadSize = RegSize / 2, TotalSizeLoaded = 0;
+           Offset < ByValSize; LoadSize /= 2) {
+        unsigned RemSize = ByValSize - Offset;
+
+        if (RemSize < LoadSize)
+          continue;
+
+        // Load subword.
+        SDValue LoadPtr = DAG.getNode(ISD::ADD, DL, PtrTy, Arg,
+                                      DAG.getConstant(Offset, PtrTy));
+        SDValue LoadVal =
+          DAG.getExtLoad(ISD::ZEXTLOAD, DL, RegTy, Chain, LoadPtr,
+                         MachinePointerInfo(), MVT::getIntegerVT(LoadSize * 8),
+                         false, false, Alignment);
+        MemOpChains.push_back(LoadVal.getValue(1));
+
+        // Shift the loaded value.
+        unsigned Shamt;
+
+        if (isLittle)
+          Shamt = TotalSizeLoaded;
+        else
+          Shamt = (RegSize - (TotalSizeLoaded + LoadSize)) * 8;
+
+        SDValue Shift = DAG.getNode(ISD::SHL, DL, RegTy, LoadVal,
+                                    DAG.getConstant(Shamt, MVT::i32));
+
+        if (Val.getNode())
+          Val = DAG.getNode(ISD::OR, DL, RegTy, Val, Shift);
+        else
+          Val = Shift;
+
+        Offset += LoadSize;
+        TotalSizeLoaded += LoadSize;
+        Alignment = std::min(Alignment, LoadSize);
+      }
+
+      unsigned ArgReg = ArgRegs[ByVal.FirstIdx + I];
+      RegsToPass.push_back(std::make_pair(ArgReg, Val));
+      return;
+    }
+  }
+
+  // Copy remainder of byval arg to it with memcpy.
+  unsigned MemCpySize = ByValSize - Offset;
+  SDValue Src = DAG.getNode(ISD::ADD, DL, PtrTy, Arg,
+                            DAG.getConstant(Offset, PtrTy));
+  SDValue Dst = DAG.getNode(ISD::ADD, DL, PtrTy, StackPtr,
+                            DAG.getIntPtrConstant(ByVal.Address));
+  Chain = DAG.getMemcpy(Chain, DL, Dst, Src,
+                        DAG.getConstant(MemCpySize, PtrTy), Alignment,
+                        /*isVolatile=*/false, /*AlwaysInline=*/false,
+                        MachinePointerInfo(0), MachinePointerInfo(0));
+  MemOpChains.push_back(Chain);
+}
+
+void
+CoffeeTargetLowering::writeVarArgRegs(std::vector<SDValue> &OutChains,
+                                    const CoffeeCC &CC, SDValue Chain,
+                                    DebugLoc DL, SelectionDAG &DAG) const {
+  unsigned NumRegs = CC.numIntArgRegs();
+  const uint16_t *ArgRegs = CC.intArgRegs();
+  const CCState &CCInfo = CC.getCCInfo();
+  unsigned Idx = CCInfo.getFirstUnallocated(ArgRegs, NumRegs);
+  unsigned RegSize = CC.regSize();
+  EVT RegTy = MVT::getIntegerVT(RegSize * 8);
+  const TargetRegisterClass *RC = getRegClassFor(RegTy);
+  MachineFunction &MF = DAG.getMachineFunction();
+  MachineFrameInfo *MFI = MF.getFrameInfo();
+  CoffeeFunctionInfo *CoffeeFI = MF.getInfo<CoffeeFunctionInfo>();
+
+  // Offset of the first variable argument from stack pointer.
+  int VaArgOffset;
+
+  if (NumRegs == Idx)
+    VaArgOffset = RoundUpToAlignment(CCInfo.getNextStackOffset(), RegSize);
+  else
+    VaArgOffset =
+      (int)CC.reservedArgArea() - (int)(RegSize * (NumRegs - Idx));
+
+  // Record the frame index of the first variable argument
+  // which is a value necessary to VASTART.
+  int FI = MFI->CreateFixedObject(RegSize, VaArgOffset, true);
+  CoffeeFI->setVarArgsFrameIndex(FI);
+
+  // Copy the integer registers that have not been used for argument passing
+  // to the argument register save area. For O32, the save area is allocated
+  // in the caller's stack frame, while for N32/64, it is allocated in the
+  // callee's stack frame.
+  for (unsigned I = Idx; I < NumRegs; ++I, VaArgOffset += RegSize) {
+    unsigned Reg = AddLiveIn(MF, ArgRegs[I], RC);
+    SDValue ArgValue = DAG.getCopyFromReg(Chain, DL, Reg, RegTy);
+    FI = MFI->CreateFixedObject(RegSize, VaArgOffset, true);
+    SDValue PtrOff = DAG.getFrameIndex(FI, getPointerTy());
+    SDValue Store = DAG.getStore(Chain, DL, ArgValue, PtrOff,
+                                 MachinePointerInfo(), false, false, 0);
+    cast<StoreSDNode>(Store.getNode())->getMemOperand()->setValue(0);
+    OutChains.push_back(Store);
+  }
+}
 
 

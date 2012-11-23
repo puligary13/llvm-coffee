@@ -16,6 +16,7 @@
 #include "CoffeeInstrBuilder.h"
 #include "CoffeeMachineFunctionInfo.h"
 #include "CoffeeTargetMachine.h"
+#include "CoffeeAnalyzeImmediate.h"
 #include "CoffeeHazardRecognizers.h"
 #include "MCTargetDesc/CoffeePredicates.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
@@ -37,18 +38,29 @@ using namespace llvm;
 
 CoffeeInstrInfo::CoffeeInstrInfo(CoffeeTargetMachine &tm)
   : CoffeeGenInstrInfo(Coffee::ADJCALLSTACKDOWN, Coffee::ADJCALLSTACKUP),
-    TM(tm), RI(*this) {
+    TM(tm), RI(*this, *tm.getSubtargetImpl()) {
 }
 
-MachineInstr *
-CoffeeInstrInfo::commuteInstruction(MachineInstr *MI, bool NewMI) const {
-}
 
 void CoffeeInstrInfo::insertNoop(MachineBasicBlock &MBB,
                               MachineBasicBlock::iterator MI) const {
     DebugLoc DL;
     BuildMI(MBB, MI, DL, get(Coffee::NOP));
 }
+
+MachineInstr*
+CoffeeInstrInfo::emitFrameIndexDebugValue(MachineFunction &MF,
+                                       int FrameIx, uint64_t Offset,
+                                       const MDNode *MDPtr,
+                                       DebugLoc DL) const {
+    MachineInstrBuilder MIB = BuildMI(MF, DL, get(Coffee::DBG_VALUE))
+      .addFrameIndex(FrameIx).addImm(0).addImm(Offset).addMetadata(MDPtr);
+    return &*MIB;
+}
+
+//===----------------------------------------------------------------------===//
+// Branch Analysis
+//===----------------------------------------------------------------------===//
 
 bool CoffeeInstrInfo::AnalyzeBranch(MachineBasicBlock &MBB,MachineBasicBlock *&TBB,
                                  MachineBasicBlock *&FBB,
@@ -127,17 +139,6 @@ CoffeeInstrInfo::storeRegToStackSlot(MachineBasicBlock &MBB,
     assert(Opc && "Register class not handled!");
     BuildMI(MBB, I, DL, get(Opc)).addReg(SrcReg, getKillRegState(isKill))
       .addFrameIndex(FI).addImm(0).addMemOperand(MMO);
-
-
-  /*  BuildMI(MBB, MI, DL, TII.get(StrOpc))
-            .addReg(Regs[e-i-1])
-            .addReg(Coffee::SP)
-            .addImm(0);
-
-
-    BuildMI(MBB, MI, DL, TII.get(Coffee::ADDri), Coffee::SP)
-            .addReg(Coffee::SP).addImm(-4);*/
-
 }
 
 
@@ -169,31 +170,115 @@ CoffeeInstrInfo::loadRegFromStackSlot(MachineBasicBlock &MBB,
       .addMemOperand(MMO);
 }
 
-MachineInstr*
-CoffeeInstrInfo::emitFrameIndexDebugValue(MachineFunction &MF,
-                                       int FrameIx, uint64_t Offset,
-                                       const MDNode *MDPtr,
-                                       DebugLoc DL) const {
-}
 
 bool CoffeeInstrInfo::
 ReverseBranchCondition(SmallVectorImpl<MachineOperand> &Cond) const {
+    assert( (Cond.size() && Cond.size() <= 3) &&
+            "Invalid Mips branch condition!");
+    Cond[0].setImm(GetOppositeBranchOpc(Cond[0].getImm()));
+    return false;
 }
 
 unsigned CoffeeInstrInfo::GetInstSizeInBytes(const MachineInstr *MI) const {
+    switch (MI->getOpcode()) {
+    default:
+      return MI->getDesc().getSize();
+    case  TargetOpcode::INLINEASM: {       // Inline Asm: Variable size.
+      const MachineFunction *MF = MI->getParent()->getParent();
+      const char *AsmStr = MI->getOperand(0).getSymbolName();
+      return getInlineAsmLength(AsmStr, *MF->getTarget().getMCAsmInfo());
+    }
+    }
+}
+
+/// GetOppositeBranchOpc - Return the inverse of the specified
+/// opcode, e.g. turning BEQ to BNE.
+unsigned CoffeeInstrInfo::GetOppositeBranchOpc(unsigned Opc) const {
+  switch (Opc) {
+  default:           llvm_unreachable("Illegal opcode!");
+  case Coffee::BEQ:    return Coffee::BNE;
+  case Coffee::BNE:    return Coffee::BEQ;
+  case Coffee::BEGT:   return Coffee::BLT;
+  case Coffee::BLT:   return Coffee::BEGT;
+
+  case Coffee::BELT:   return Coffee::BGT;
+  case Coffee::BGT:   return Coffee::BELT;
+  }
+}
+
+void CoffeeInstrInfo::ExpandRetLR(MachineBasicBlock &MBB,
+                                MachineBasicBlock::iterator I,
+                                unsigned Opc) const {
+  BuildMI(MBB, I, I->getDebugLoc(), get(Opc)).addReg(Coffee::LR);
 }
 
 
-void llvm::emitCoffeeRegPlusImmediate(MachineBasicBlock &MBB,
-                               MachineBasicBlock::iterator &MBBI, DebugLoc dl,
-                               unsigned DestReg, unsigned BaseReg, int NumBytes,
-                               const TargetInstrInfo &TII, unsigned MIFlags) {
-    if (NumBytes) {
-        //might need do more if the num of bytes is too big
-        unsigned Opc = Coffee::ADDri;
-        BuildMI(MBB, MBBI, dl, TII.get(Opc), DestReg)
-                .addReg(BaseReg, RegState::Kill).addImm(NumBytes)
-                .setMIFlags(MIFlags);
-        BaseReg = DestReg;
-    }
+bool CoffeeInstrInfo::expandPostRAPseudo(MachineBasicBlock::iterator MI) const {
+  MachineBasicBlock &MBB = *MI->getParent();
+
+  switch(MI->getDesc().getOpcode()) {
+  default:
+    return false;
+  case Coffee::RetLR:
+    ExpandRetLR(MBB, MI, Coffee::RET);
+    break;
+  }
+
+  MBB.erase(MI);
+  return true;
+}
+
+/// Adjust SP by Amount bytes.
+void CoffeeInstrInfo::adjustStackPtr(unsigned SP, int64_t Amount,
+                                     MachineBasicBlock &MBB,
+                                     MachineBasicBlock::iterator I) const {
+  DebugLoc DL = I != MBB.end() ? I->getDebugLoc() : DebugLoc();
+
+  if (isInt<16>(Amount))// addi sp, sp, amount
+    BuildMI(MBB, I, DL, get(Coffee::ADDi), Coffee::SP).addReg(Coffee::SP).addImm(Amount);
+  else { // Expand immediate that doesn't fit in 16-bit.
+    unsigned Reg = loadImmediate(Amount, MBB, I, DL, 0);
+    BuildMI(MBB, I, DL, get(Coffee::ADDu), Coffee::SP).addReg(Coffee::SP).addReg(Reg, RegState::Kill);
+  }
+}
+
+/// This function generates the sequence of instructions needed to get the
+/// result of adding register REG and immediate IMM.
+unsigned
+CoffeeInstrInfo::loadImmediate(int64_t Imm, MachineBasicBlock &MBB,
+                               MachineBasicBlock::iterator II, DebugLoc DL,
+                               unsigned *NewImm) const {
+  CoffeeAnalyzeImmediate AnalyzeImm;
+
+  MachineRegisterInfo &RegInfo = MBB.getParent()->getRegInfo();
+  unsigned Size = 32;
+  unsigned LUi = Coffee::LUi;
+
+  const TargetRegisterClass *RC = &Coffee::GPRCRegClass;
+  bool LastInstrIsADDiu = NewImm;
+
+  const CoffeeAnalyzeImmediate::InstSeq &Seq =
+    AnalyzeImm.Analyze(Imm, Size, LastInstrIsADDiu);
+  CoffeeAnalyzeImmediate::InstSeq::const_iterator Inst = Seq.begin();
+
+  assert(Seq.size() && (!LastInstrIsADDiu || (Seq.size() > 1)));
+
+  // The first instruction can be a LUi, which is different from other
+  // instructions (ADDiu, ORI and SLL) in that it does not have a register
+  // operand.
+  unsigned Reg = RegInfo.createVirtualRegister(RC);
+
+  if (Inst->Opc == LUi)
+    BuildMI(MBB, II, DL, get(LUi), Reg).addImm(SignExtend64<16>(Inst->ImmOpnd));
+
+
+  // Build the remaining instructions in Seq.
+  for (++Inst; Inst != Seq.end() - LastInstrIsADDiu; ++Inst)
+    BuildMI(MBB, II, DL, get(Inst->Opc), Reg).addReg(Reg, RegState::Kill)
+      .addImm(SignExtend64<16>(Inst->ImmOpnd));
+
+  if (LastInstrIsADDiu)
+    *NewImm = Inst->ImmOpnd;
+
+  return Reg;
 }

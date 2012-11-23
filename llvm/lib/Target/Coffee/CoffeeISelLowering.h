@@ -149,6 +149,7 @@ private:
     SDValue LowerGlobalAddress(SDValue Op,SelectionDAG &DAG) const;
     SDValue getCoffeeCmp(SDValue LHS, SDValue RHS, SelectionDAG &DAG,
                                  DebugLoc dl) const;
+    SDValue LowerRETURNADDR(SDValue Op, SelectionDAG &DAG) const;
 
     SDValue LowerMemOpCallTo(SDValue Chain,
                      SDValue StackPtr, SDValue Arg,
@@ -168,6 +169,30 @@ private:
     passArgOnStack(SDValue StackPtr, unsigned Offset,
                                        SDValue Chain, SDValue Arg, DebugLoc DL,
                                        bool IsTailCall, SelectionDAG &DAG) const;
+
+    /// copyByValArg - Copy argument registers which were used to pass a byval
+    /// argument to the stack. Create a stack frame object for the byval
+    /// argument.
+    void copyByValRegs(SDValue Chain, DebugLoc DL,
+                       std::vector<SDValue> &OutChains, SelectionDAG &DAG,
+                       const ISD::ArgFlagsTy &Flags,
+                       SmallVectorImpl<SDValue> &InVals,
+                       const Argument *FuncArg,
+                       const CoffeeCC &CC, const ByValArgInfo &ByVal) const;
+
+    /// passByValArg - Pass a byval argument in registers or on stack.
+    void passByValArg(SDValue Chain, DebugLoc DL,
+                      SmallVector<std::pair<unsigned, SDValue>, 16> &RegsToPass,
+                      SmallVector<SDValue, 8> &MemOpChains, SDValue StackPtr,
+                      MachineFrameInfo *MFI, SelectionDAG &DAG, SDValue Arg,
+                      const CoffeeCC &CC, const ByValArgInfo &ByVal,
+                      const ISD::ArgFlagsTy &Flags, bool isLittle) const;
+
+    /// writeVarArgRegs - Write variable function arguments passed in registers
+    /// to the stack. Also create a stack frame object for the first variable
+    /// argument.
+    void writeVarArgRegs(std::vector<SDValue> &OutChains, const CoffeeCC &CC,
+                         SDValue Chain, DebugLoc DL, SelectionDAG &DAG) const;
 
 };
 }

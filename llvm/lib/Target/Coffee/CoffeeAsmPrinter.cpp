@@ -13,11 +13,15 @@
 //===----------------------------------------------------------------------===//
 
 #define DEBUG_TYPE "Coffee-asm-printer"
-#include "CoffeeAsmPrinter.h"
+
+
+
 #include "Coffee.h"
+#include "CoffeeAsmPrinter.h"
 #include "CoffeeInstrInfo.h"
 #include "InstPrinter/CoffeeInstPrinter.h"
 #include "MCTargetDesc/CoffeeBaseInfo.h"
+
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/Twine.h"
@@ -62,7 +66,7 @@ bool CoffeeAsmPrinter::runOnMachineFunction(MachineFunction &MF) {
   return true;
 }
 
-//#include "CoffeeGenMCPseudoLowering.inc"
+#include "CoffeeGenMCPseudoLowering.inc"
 
 void CoffeeAsmPrinter::EmitInstruction(const MachineInstr *MI) {
   if (MI->isDebugValue()) {
@@ -74,8 +78,8 @@ void CoffeeAsmPrinter::EmitInstruction(const MachineInstr *MI) {
   }
 
   // Do any auto-generated pseudo lowerings.
- // if (emitPseudoExpansionLowering(OutStreamer, MI))
- //    return;
+ if (emitPseudoExpansionLowering(OutStreamer, MI))
+     return;
 
   MachineBasicBlock::const_instr_iterator I = MI;
   MachineBasicBlock::const_instr_iterator E = MI->getParent()->instr_end();
