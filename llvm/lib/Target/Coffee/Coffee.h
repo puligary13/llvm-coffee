@@ -39,7 +39,7 @@ namespace llvm {
   void LowerCoffeeMachineInstrToMCInst(const MachineInstr *MI, MCInst &OutMI,
                                     CoffeeAsmPrinter &AP);
   
-  namespace CoffeeII {
+ /* namespace CoffeeII {
     
   /// Target Operand Flag enum.
   enum TOF {
@@ -71,7 +71,7 @@ namespace llvm {
     /// non-lazy-pointer to be generated.
     MO_NLP_HIDDEN_FLAG = 64
   };
-  } // end namespace CoffeeII
+  } // end namespace CoffeeII*/
   
 } // end namespace llvm;
 

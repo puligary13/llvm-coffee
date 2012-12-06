@@ -1,4 +1,4 @@
-//===-- CoffeeMCAsmInfo.cpp - Coffee asm properties -----------------------------===//
+//===-- CoffeeMCAsmInfo.cpp - Coffee Asm Properties ---------------------------===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -7,32 +7,35 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// This file contains the declarations of the MCAsmInfoDarwin properties.
+// This file contains the declarations of the CoffeeMCAsmInfo properties.
 //
 //===----------------------------------------------------------------------===//
 
 #include "CoffeeMCAsmInfo.h"
+#include "llvm/ADT/Triple.h"
+
 using namespace llvm;
 
-void CoffeeLinuxMCAsmInfo::anchor() { }
+void CoffeeMCAsmInfo::anchor() { }
 
-CoffeeLinuxMCAsmInfo::CoffeeLinuxMCAsmInfo() {
-    IsLittleEndian = false;
+CoffeeMCAsmInfo::CoffeeMCAsmInfo(const Target &T, StringRef TT) {
+  Triple TheTriple(TT);
+  if ((TheTriple.getArch() == Triple::coffee))
+    IsLittleEndian = true;
 
-    AlignmentIsInBytes          = false;
-    Data16bitsDirective         = "\t.2byte\t";
-    Data32bitsDirective         = "\t.4byte\t";
-    Data64bitsDirective         = "\t.8byte\t";
-    PrivateGlobalPrefix         = "L";  //todo: change this to # or $ adds " or ( around the label, need to check why in future when needed
-    CommentString               = "#";
-    ZeroDirective               = "\t.space\t";
-    GPRel32Directive            = "\t.gpword\t";
-    GPRel64Directive            = "\t.gpdword\t";
-    WeakRefDirective            = "\t.weak\t";
+  AlignmentIsInBytes          = false;
+  Data16bitsDirective         = "\t.2byte\t";
+  Data32bitsDirective         = "\t.4byte\t";
+  Data64bitsDirective         = "\t.8byte\t";
+  PrivateGlobalPrefix         = "$";
+  CommentString               = "#";
+  ZeroDirective               = "\t.space\t";
+  GPRel32Directive            = "\t.gpword\t";
+  GPRel64Directive            = "\t.gpdword\t";
+  WeakRefDirective            = "\t.weak\t";
 
-    SupportsDebugInformation = true;
-    ExceptionsType = ExceptionHandling::DwarfCFI;
-    HasLEB128 = true;
-    DwarfRegNumForCFI = true;
+  SupportsDebugInformation = true;
+  ExceptionsType = ExceptionHandling::DwarfCFI;
+  HasLEB128 = true;
+  DwarfRegNumForCFI = true;
 }
-

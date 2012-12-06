@@ -1,9 +1,9 @@
 add_llvm_library(LLVMCoffeeDesc
   CoffeeAsmBackend.cpp
-  CoffeeDirectObjLower.cpp
+  CoffeeMCTargetDesc.cpp
   CoffeeMCAsmInfo.cpp
   CoffeeMCCodeEmitter.cpp
-  CoffeeMCTargetDesc.cpp
+  CoffeePredicates.cpp
   CoffeeELFObjectWriter.cpp
   )
 

@@ -287,7 +287,7 @@ enum {
   EM_VIDEOCORE5    = 198, // Broadcom VideoCore V processor
   EM_78KOR         = 199, // Renesas 78KOR family
   EM_56800EX       = 200, // Freescale 56800EX Digital Signal Controller (DSC)
-  EM_COFFEE        = 201, // a COre For FrEE
+  EM_COFFEE        = 0xC00F, // a COre For FrEE (this must be same as linker /include/elf/common.h)
   EM_MBLAZE        = 47787 // Xilinx MicroBlaze
 };
 
@@ -477,24 +477,26 @@ enum {
   R_PPC64_TOC16_DS            = 63
 };
 
-
+// Coffee Specific e_flags
 enum {
-  R_Coffee_NONE                  = 0,      /* No relocation. */
-  R_Coffee_ADDR32                = 1,
-  R_Coffee_ADDR24                = 2,
-  R_Coffee_ADDR16                = 3,
-  R_Coffee_ADDR16_LO             = 4,
-  R_Coffee_ADDR16_HI             = 5,
-  R_Coffee_ADDR16_HA             = 6,
-  R_Coffee_ADDR14                = 7,
-  R_Coffee_ADDR14_BRTAKEN        = 8,
-  R_Coffee_ADDR14_BRNTAKEN       = 9,
-  R_Coffee_REL24                 = 10,
-  R_Coffee_REL14                 = 11,
-  R_Coffee_REL14_BRTAKEN         = 12,
-  R_Coffee_REL14_BRNTAKEN        = 13,
-  R_Coffee_REL32                 = 26
+  EF_Coffee_NOREORDER = 0x00000001, // Don't reorder instructions
+  EF_Coffee_PIC       = 0x00000002, // Position independent code
+  EF_Coffee_CPIC      = 0x00000004, // Call object with Position independent code
+  EF_Coffee_ARCH    = 0x00000000 // COFFEE instruction set
 };
+
+// ELF Relocation types for Coffee
+// .
+enum {
+  R_Coffee_NONE              =  0,
+  R_Coffee_ADDR32            =  1,
+  R_Coffee_REL32             =  2,
+  R_Coffee_LO16             =  3,
+  R_Coffee_HI16                =  4,
+  R_Coffee_BR22              =  5,
+  R_Coffee_JMP25              =  6
+};
+
 
 // ARM Specific e_flags
 enum { EF_ARM_EABIMASK = 0xFF000000U };

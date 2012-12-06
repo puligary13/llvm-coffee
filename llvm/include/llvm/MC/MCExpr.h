@@ -198,8 +198,27 @@ public:
     VK_Mips_GOT_OFST,
     VK_Mips_HIGHER,
     VK_Mips_HIGHEST,
-    VK_Coffee_ABS_HI,
-    VK_Coffee_ABS_LO
+
+      VK_Coffee_GPREL,
+      VK_Coffee_GOT_CALL,
+      VK_Coffee_GOT16,
+      VK_Coffee_GOT,
+      VK_Coffee_ABS_HI,
+      VK_Coffee_ABS_LO,
+      VK_Coffee_TLSGD,
+      VK_Coffee_TLSLDM,
+      VK_Coffee_DTPREL_HI,
+      VK_Coffee_DTPREL_LO,
+      VK_Coffee_GOTTPREL,
+      VK_Coffee_TPREL_HI,
+      VK_Coffee_TPREL_LO,
+      VK_Coffee_GPOFF_HI,
+      VK_Coffee_GPOFF_LO,
+      VK_Coffee_GOT_DISP,
+      VK_Coffee_GOT_PAGE,
+      VK_Coffee_GOT_OFST,
+      VK_Coffee_HIGHER,
+      VK_Coffee_HIGHEST
   };
 
 private:

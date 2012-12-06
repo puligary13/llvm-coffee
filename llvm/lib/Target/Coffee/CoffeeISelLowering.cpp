@@ -15,7 +15,7 @@
 #include "CoffeeMachineFunctionInfo.h"
 #include "CoffeePerfectShuffle.h"
 #include "CoffeeTargetMachine.h"
-#include "MCTargetDesc/CoffeePredicates.h"
+//#include "MCTargetDesc/CoffeePredicates.h"
 #include "CoffeeTargetObjectFile.h"
 #include "llvm/CallingConv.h"
 #include "llvm/Constants.h"
@@ -168,10 +168,8 @@ CoffeeTargetLowering::CoffeeTargetLowering(CoffeeTargetMachine &TM)
     addRegisterClass(MVT::f32, &Coffee::FPRCRegClass);
 
 
-
-    ///////
-
     // Load extented operations for i1 types must be promoted
+    //
     setLoadExtAction(ISD::EXTLOAD,  MVT::i1,  Promote);
     setLoadExtAction(ISD::ZEXTLOAD, MVT::i1,  Promote);
     setLoadExtAction(ISD::SEXTLOAD, MVT::i1,  Promote);
@@ -567,12 +565,11 @@ const char * CoffeeTargetLowering::getTargetNodeName(unsigned Opcode) const {
     switch (Opcode) {
     default: return 0;
     case COFFEEISD::RET:       return "COFFEEISD::RET";
-    case COFFEEISD::CALL:       return "COFFEEISD::CALL";
+    case COFFEEISD::JmpLink:       return "COFFEEISD::JmpLink";
     case COFFEEISD::BRCOND:     return   "COFFEEISD::BRCOND";
     case COFFEEISD::CMP:        return "COFFEEISD::CMP";
     case COFFEEISD::Hi:         return "COFFEEISD::Hi";
     case COFFEEISD::Lo:         return "COFFEEISD::Lo";
-
     }
 }
 
@@ -876,7 +873,7 @@ CoffeeTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
     //if (isTailCall)
      // return DAG.getNode(CoffeeISD::TailCall, dl, MVT::Other, &Ops[0], Ops.size());
 
-    Chain  = DAG.getNode(COFFEEISD::CALL, dl, NodeTys, &Ops[0], Ops.size());
+    Chain  = DAG.getNode(COFFEEISD::JmpLink, dl, NodeTys, &Ops[0], Ops.size());
     InFlag = Chain.getValue(1);
 
     // Create the CALLSEQ_END node.
@@ -1017,16 +1014,18 @@ SDValue CoffeeTargetLowering::LowerBlockAddress(SDValue Op,
     // %hi/%lo relocation
     SDValue BAHi = DAG.getBlockAddress(BA, MVT::i32, true, CoffeeII::MO_ABS_HI);
     SDValue BALo = DAG.getBlockAddress(BA, MVT::i32, true, CoffeeII::MO_ABS_LO);
-    SDValue Hi = DAG.getNode(COFFEEISD::Hi, dl, MVT::i32, BAHi);
 
-    return DAG.getNode(COFFEEISD::Lo, dl, MVT::i32, BALo, Hi);
+
+    SDValue Lo = DAG.getNode(COFFEEISD::Lo, dl, MVT::i32, BALo);
+
+    return DAG.getNode(COFFEEISD::Hi, dl, MVT::i32, BAHi, Lo);
 }
 
 
 SDValue CoffeeTargetLowering::
 LowerJumpTable(SDValue Op, SelectionDAG &DAG) const
 {
-  SDValue HiPart, JTI, JTILo;
+  SDValue LoPart, JTIHi, JTILo;
   // FIXME there isn't actually debug info here
   DebugLoc dl = Op.getDebugLoc();
   bool IsPIC = getTargetMachine().getRelocationModel() == Reloc::PIC_;
@@ -1034,13 +1033,12 @@ LowerJumpTable(SDValue Op, SelectionDAG &DAG) const
   JumpTableSDNode *JT = cast<JumpTableSDNode>(Op);
 
 
-    JTI = DAG.getTargetJumpTable(JT->getIndex(), PtrVT, CoffeeII::MO_ABS_HI);
-    HiPart = DAG.getNode(COFFEEISD::Hi, dl, PtrVT, JTI);
-
-
+    JTIHi = DAG.getTargetJumpTable(JT->getIndex(), PtrVT, CoffeeII::MO_ABS_HI);
     JTILo = DAG.getTargetJumpTable(JT->getIndex(), PtrVT, CoffeeII::MO_ABS_LO);
 
-   return DAG.getNode(COFFEEISD::Lo, dl, MVT::i32, HiPart, JTILo);
+   LoPart = DAG.getNode(COFFEEISD::Lo, dl, PtrVT, JTILo);
+
+   return DAG.getNode(COFFEEISD::Hi, dl, MVT::i32, LoPart, JTIHi);
 
 
 }
@@ -1066,9 +1064,10 @@ SDValue CoffeeTargetLowering::LowerGlobalAddress(SDValue Op,
                                               CoffeeII::MO_ABS_HI);
     SDValue GALo = DAG.getTargetGlobalAddress(GV, dl, MVT::i32, 0,
                                               CoffeeII::MO_ABS_LO);
-    SDValue HiPart = DAG.getNode(COFFEEISD::Hi, dl, MVT::i32, GAHi);
 
-    return DAG.getNode(COFFEEISD::Lo, dl, MVT::i32, HiPart, GALo);
+    SDValue LoPart = DAG.getNode(COFFEEISD::Lo, dl, MVT::i32, GALo);
+
+    return DAG.getNode(COFFEEISD::Hi, dl, MVT::i32, LoPart, GALo);
 
 
 }

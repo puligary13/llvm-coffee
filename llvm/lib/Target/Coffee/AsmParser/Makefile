@@ -1,4 +1,4 @@
-##===- lib/Target/Mips/TargetDesc/Makefile -----------------*- Makefile -*-===##
+##===- lib/Target/Mips/AsmParser/Makefile ------------------*- Makefile -*-===##
 #
 #                     The LLVM Compiler Infrastructure
 #
@@ -6,12 +6,10 @@
 # License. See LICENSE.TXT for details.
 #
 ##===----------------------------------------------------------------------===##
-
 LEVEL = ../../../..
-LIBRARYNAME = LLVMMipsDesc
+LIBRARYNAME = LLVMMipsAsmParser
 
-# Hack: we need to include 'main' target directory to grab private headers
+# Hack: we need to include 'main' mips target directory to grab private headers
 CPP.Flags += -I$(PROJ_OBJ_DIR)/.. -I$(PROJ_SRC_DIR)/..
 
 include $(LEVEL)/Makefile.common
-

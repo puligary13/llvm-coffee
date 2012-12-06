@@ -15,7 +15,7 @@
 #define DEBUG_TYPE "Coffee-codegen"
 #include "Coffee.h"
 #include "CoffeeTargetMachine.h"
-#include "MCTargetDesc/CoffeePredicates.h"
+//#include "MCTargetDesc/CoffeePredicates.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
 #include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"

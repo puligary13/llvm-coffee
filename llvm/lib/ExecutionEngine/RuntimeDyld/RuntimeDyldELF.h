@@ -56,6 +56,12 @@ protected:
                              uint32_t Type,
                              int32_t Addend);
 
+  void resolveCoffeeRelocation(const SectionEntry &Section,
+                             uint64_t Offset,
+                             uint32_t Value,
+                             uint32_t Type,
+                             int32_t Addend);
+
   void resolvePPC64Relocation(const SectionEntry &Section,
                               uint64_t Offset,
                               uint64_t Value,

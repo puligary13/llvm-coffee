@@ -32,8 +32,8 @@ CoffeeTargetMachine::CoffeeTargetMachine(const Target &T, StringRef TT,
                                    Reloc::Model RM, CodeModel::Model CM,
                                    CodeGenOpt::Level OL)
   : LLVMTargetMachine(T, TT, CPU, FS, Options, RM, CM, OL),
-    Subtarget(TT, CPU, FS, true, RM),  //is Little Endian
-    DL("e-p:32:32:32-i8:8:32-i16:16:32-i64:64:64-n32"),
+    Subtarget(TT, CPU, FS, false, RM),  //is Big Endian
+    DL("E-p:32:32:32-i8:8:32-i16:16:32-i64:64:64-n32"),
     InstrInfo(*this),
     FrameLowering(),
     TLInfo(*this),

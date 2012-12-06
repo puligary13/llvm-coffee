@@ -1,4 +1,4 @@
-//===-- MipsMCAsmInfo.h - Mips Asm Info ------------------------*- C++ -*--===//
+//===-- CoffeeMCAsmInfo.h - Coffee asm properties --------------------*- C++ -*--===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -7,23 +7,21 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// This file contains the declaration of the MipsMCAsmInfo class.
+// This file contains the declaration of the MCAsmInfoDarwin class.
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef MIPSTARGETASMINFO_H
-#define MIPSTARGETASMINFO_H
+#ifndef CoffeeTARGETASMINFO_H
+#define CoffeeTARGETASMINFO_H
 
-#include "llvm/MC/MCAsmInfo.h"
+#include "llvm/MC/MCAsmInfoDarwin.h"
 
 namespace llvm {
-  class StringRef;
-  class Target;
 
-  class CoffeeMCAsmInfo : public MCAsmInfo {
+  class CoffeeLinuxMCAsmInfo : public MCAsmInfo {
     virtual void anchor();
   public:
-    explicit CoffeeMCAsmInfo(const Target &T, StringRef TT);
+    explicit CoffeeLinuxMCAsmInfo();
   };
 
 } // namespace llvm

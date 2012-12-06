@@ -263,4 +263,4 @@ unsigned CoffeeCodeEmitter::getMachineOpValue(const MachineInstr &MI,
   return MO.getImm();
 }
 
-#include "CoffeeGenCodeEmitter.inc"
+//#include "CoffeeGenCodeEmitter.inc"

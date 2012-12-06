@@ -1,4 +1,4 @@
-;===- ./lib/Target/Coffee/LLVMBuild.txt -----------------------*- Conf -*--===;
+;===- ./lib/Target/Coffee/MCTargetDesc/LLVMBuild.txt ----------*- Conf -*--===;
 ;
 ;                     The LLVM Compiler Infrastructure
 ;
@@ -15,20 +15,9 @@
 ;
 ;===------------------------------------------------------------------------===;
 
-[common]
-subdirectories = AsmParser InstPrinter MCTargetDesc TargetInfo
-
 [component_0]
-type = TargetGroup
-name = Coffee
-parent = Target
-has_asmprinter = 1
-has_jit = 1
-
-[component_1]
 type = Library
-name = CoffeeCodeGen
+name = CoffeeDesc
 parent = Coffee
-required_libraries = Analysis AsmPrinter CodeGen Core MC CoffeeAsmPrinter CoffeeDesc CoffeeInfo SelectionDAG Support Target
+required_libraries = MC CoffeeAsmPrinter CoffeeInfo Support
 add_to_library_groups = Coffee
-

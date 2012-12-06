@@ -32,6 +32,8 @@ class InstCoffee<dag outs, dag ins, string asmstr, list<dag> pattern,
                  InstrItinClass itin, Format f> : Instruction {
   field bits<32> Inst;
 
+  Format Form = f;
+
   let Namespace = "Coffee";
 
   let Size = 4;
@@ -45,49 +47,83 @@ class InstCoffee<dag outs, dag ins, string asmstr, list<dag> pattern,
   let AsmString = asmstr;
   let Pattern = pattern;
   let Itinerary  = itin;
+
+  //
+  // Attributes specific to Mips instructions...
+  //
+  bits<4> FormBits = Form.Value;
+
+  // TSFlags layout should be kept in sync with MipsInstrInfo.h.
+  let TSFlags{3-0}   = FormBits;
 }
 
 
 class FFI<bits<6> op, dag outs, dag ins, string asmstr, list<dag> pattern>:
           InstCoffee<outs, ins, asmstr, pattern, NoItinerary, FrmFI>
 {
+ }
+
+// Instruction without operands
+class F<bits<6> op, dag outs, dag ins, string asmstr,
+         list<dag> pattern, InstrItinClass itin>:
+      InstCoffee<outs, ins, asmstr, pattern, itin, FrmOther>
+{
+  let Opcode = op;
+  let Inst{25} = 0b0; // disable condition
 }
 
 
-class FR<bits<6> op, dag outs, dag ins, string asmstr,
+// register instruction format with 2 operands
+class F2R<bits<6> op, dag outs, dag ins, string asmstr,
          list<dag> pattern, InstrItinClass itin>:
       InstCoffee<outs, ins, asmstr, pattern, itin, FrmR>
 {
-// to be defined
+  bits<5> sreg1;
+  bits<5> dreg;
+
+  let Opcode = op;
+
+  let Inst{25} = 0b0; // disable condition
+  let Inst{9-5} = sreg1;
+  let Inst{4-0}  = dreg;
 }
+
+// register instruction format with 3 operands
+class F3R<bits<6> op, dag outs, dag ins, string asmstr,
+         list<dag> pattern, InstrItinClass itin>:
+      F2R<op, outs, ins, asmstr, pattern, itin>
+{
+  bits<5> sreg2;
+  let Inst{14-10} = sreg2;
+}
+
 
 class FI<bits<6> op, dag outs, dag ins, string asmstr, list<dag> pattern,
          InstrItinClass itin>: InstCoffee<outs, ins, asmstr, pattern, itin, FrmI>
 {
-// to be defined
+  bits<15>  imm;
+  bits<5> rs;
+  bits<5> rt;
+
+  let Opcode = op;
+
+  let Inst{25} = 0b0; // disable condition
+  let Inst{24-10} = imm;
+  let Inst{9-5} = rs;
+  let Inst{4-0}  = rt;
 }
 
 
-
-
-class CoffeePseudo<dag outs, dag ins, string asmstr, list<dag> pattern>:
-      InstCoffee<outs, ins, asmstr, pattern, IIPseudo, Pseudo> {
-  let isCodeGenOnly = 1;
-  let isPseudo = 1;
-}
-
-// defintion of instruction format in coffee
 
 class BranchBase<bits<6> op, dag outs, dag ins, string asmstr,
                   list<dag> pattern, InstrItinClass itin>:
   InstCoffee<outs, ins, asmstr, pattern, itin, FrmI>
 {
-  bits<3>  creg;
   bits<22>  imm;
 
   let Opcode = op;
 
-  let Inst{24-22} = creg;
+  let Inst{24-22} = 0b000; // select CR0
   let Inst{21-0} = imm;
 
 }
@@ -100,10 +136,17 @@ class FJ<bits<6> op, dag outs, dag ins, string asmstr, list<dag> pattern,
 
   let Opcode = op;
 
+  let Inst{25} = 0;
   let Inst{24-0} = addr;
 }
 
+class CoffeePseudo<dag outs, dag ins, string asmstr, list<dag> pattern>:
+      InstCoffee<outs, ins, asmstr, pattern, IIPseudo, Pseudo> {
+  let isCodeGenOnly = 1;
+  let isPseudo = 1;
+}
 
+////////////////////////////////////////////////////////////////////////////
 // cex is set to 1
 //class InstCoffee_1<bits<6> opcode, bits<3> creg, bits<3> cond, dag outs, dag ins, string asmstr, list<dag> pattern = []>
 //        : InstCoffee<opcode, outs, ins, asmstr, pattern> {

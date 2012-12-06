@@ -1,4 +1,4 @@
-;===- ./lib/Target/Coffee/MCTargetDesc/LLVMBuild.txt ----------*- Conf -*--===;
+;===- ./lib/Target/Coffee/MCTargetDesc/LLVMBuild.txt -------------*- Conf -*--===;
 ;
 ;                     The LLVM Compiler Infrastructure
 ;

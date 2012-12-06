@@ -34,7 +34,6 @@ def Feature32         : SubtargetFeature<"coffee32", "CoffeeABI", "ABI32",
 include "CoffeeCallingConv.td"
 
 def CoffeeInstrInfo : InstrInfo {
-  let isLittleEndianEncoding = 1;
 }
 
 //===----------------------------------------------------------------------===//
@@ -52,9 +51,22 @@ def CoffeeAsmWriter : AsmWriter {
   bit isMCAsmWriter = 1;
 }
 
+def CoffeeAsmParser : AsmParser {
+  let ShouldEmitMatchRegisterName = 0;
+}
+
+def CoffeeAsmParserVariant : AsmParserVariant {
+  int Variant = 0;
+
+  // Recognize hard coded registers.
+  string RegisterPrefix = "$";
+}
+
 def Coffee : Target {
   // Information about the instructions.
   let InstructionSet = CoffeeInstrInfo;
   
   let AssemblyWriters = [CoffeeAsmWriter];
+  let AssemblyParsers = [CoffeeAsmParser];
+  let AssemblyParserVariants = [CoffeeAsmParserVariant];
 }

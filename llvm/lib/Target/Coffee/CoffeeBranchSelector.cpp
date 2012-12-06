@@ -19,7 +19,7 @@
 #include "Coffee.h"
 #include "CoffeeInstrBuilder.h"
 #include "CoffeeInstrInfo.h"
-#include "MCTargetDesc/CoffeePredicates.h"
+//#include "MCTargetDesc/CoffeePredicates.h"
 #include "llvm/CodeGen/MachineFunctionPass.h"
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/ADT/Statistic.h"
@@ -141,7 +141,7 @@ bool CoffeeBSel::runOnMachineFunction(MachineFunction &Fn) {
         // 0. Coffee branch predicate
         // 1. CR register
         // 2. Target MBB
-        Coffee::Predicate Pred = (Coffee::Predicate)I->getOperand(0).getImm();
+      //  Coffee::Predicate Pred = (Coffee::Predicate)I->getOperand(0).getImm();
         unsigned CRReg = I->getOperand(1).getReg();
         
         MachineInstr *OldBranch = I;

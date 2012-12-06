@@ -18,7 +18,7 @@
 #include "CoffeeTargetMachine.h"
 #include "CoffeeAnalyzeImmediate.h"
 #include "CoffeeHazardRecognizers.h"
-#include "MCTargetDesc/CoffeePredicates.h"
+//#include "MCTargetDesc/CoffeePredicates.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
 #include "llvm/CodeGen/MachineMemOperand.h"

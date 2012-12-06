@@ -229,6 +229,27 @@ StringRef MCSymbolRefExpr::getVariantKindName(VariantKind Kind) {
   case VK_Mips_GOT_OFST: return "GOT_OFST";
   case VK_Mips_HIGHER:   return "HIGHER";
   case VK_Mips_HIGHEST:  return "HIGHEST";
+
+  case VK_Coffee_GPREL: return "GPREL";
+  case VK_Coffee_GOT_CALL: return "GOT_CALL";
+  case VK_Coffee_GOT16: return "GOT16";
+  case VK_Coffee_GOT: return "GOT";
+  case VK_Coffee_ABS_HI: return "ABS_HI";
+  case VK_Coffee_ABS_LO: return "ABS_LO";
+  case VK_Coffee_TLSGD: return "TLSGD";
+  case VK_Coffee_TLSLDM: return "TLSLDM";
+  case VK_Coffee_DTPREL_HI: return "DTPREL_HI";
+  case VK_Coffee_DTPREL_LO: return "DTPREL_LO";
+  case VK_Coffee_GOTTPREL: return "GOTTPREL";
+  case VK_Coffee_TPREL_HI: return "TPREL_HI";
+  case VK_Coffee_TPREL_LO: return "TPREL_LO";
+  case VK_Coffee_GPOFF_HI: return "GPOFF_HI";
+  case VK_Coffee_GPOFF_LO: return "GPOFF_LO";
+  case VK_Coffee_GOT_DISP: return "GOT_DISP";
+  case VK_Coffee_GOT_PAGE: return "GOT_PAGE";
+  case VK_Coffee_GOT_OFST: return "GOT_OFST";
+  case VK_Coffee_HIGHER:   return "HIGHER";
+  case VK_Coffee_HIGHEST:  return "HIGHEST";
   }
   llvm_unreachable("Invalid variant kind");
 }

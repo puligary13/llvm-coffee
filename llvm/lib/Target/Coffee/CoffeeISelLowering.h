@@ -31,14 +31,15 @@ enum NodeType {
     // Start the numbering where the builtin ops and target ops leave off.
     FIRST_NUMBER = ISD::BUILTIN_OP_END,
     RET,     // Return with a flag operand
-    CALL,
+
     BRCOND,
     CMP,
     Hi,
     Lo,
     DynAlloc,
     MUL,
-    MUL_64
+    MUL_64,
+    JmpLink //CALL
 };
 }
 

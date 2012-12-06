@@ -330,6 +330,41 @@ void RuntimeDyldELF::resolveARMRelocation(const SectionEntry &Section,
   }
 }
 
+
+void RuntimeDyldELF::resolveCoffeeRelocation(const SectionEntry &Section,
+                                           uint64_t Offset,
+                                           uint32_t Value,
+                                           uint32_t Type,
+                                           int32_t Addend) {
+  uint32_t* TargetPtr = (uint32_t*)(Section.Address + Offset);
+  Value += Addend;
+
+  DEBUG(dbgs() << "resolveCoffeelocation, LocalAddress: "
+               << Section.Address + Offset
+               << " FinalAddress: "
+               << format("%p",Section.LoadAddress + Offset)
+               << " Value: " << format("%x",Value)
+               << " Type: " << format("%x",Type)
+               << " Addend: " << format("%x",Addend)
+               << "\n");
+
+  switch(Type) {
+  default:
+    llvm_unreachable("Not implemented relocation type!");
+    break;
+  case ELF::R_Coffee_HI16:
+    // Get the higher 16-bits. Also add 1 if bit 15 is 1.
+    Value += ((*TargetPtr) & 0x0000ffff) << 16;
+    *TargetPtr = ((*TargetPtr) & 0xffff0000) |
+                 (((Value + 0x8000) >> 16) & 0xffff);
+    break;
+   case ELF::R_Coffee_LO16:
+    Value += ((*TargetPtr) & 0x0000ffff);
+    *TargetPtr = ((*TargetPtr) & 0xffff0000) | (Value & 0xffff);
+    break;
+   }
+}
+
 void RuntimeDyldELF::resolveMIPSRelocation(const SectionEntry &Section,
                                            uint64_t Offset,
                                            uint32_t Value,
@@ -571,6 +606,11 @@ void RuntimeDyldELF::resolveRelocation(const SectionEntry &Section,
                           (uint32_t)(Value & 0xffffffffL), Type,
                           (uint32_t)(Addend & 0xffffffffL));
     break;
+  case Triple::coffee:
+      resolveCoffeeRelocation(Section, Offset,
+                            (uint32_t)(Value & 0xffffffffL), Type,
+                            (uint32_t)(Addend & 0xffffffffL));
+
   case Triple::ppc64:
     resolvePPC64Relocation(Section, Offset, Value, Type, Addend);
     break;

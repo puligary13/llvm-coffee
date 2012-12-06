@@ -25,7 +25,7 @@
 #include "llvm/MC/MCRegisterInfo.h"
 #include "llvm/MC/MCSubtargetInfo.h"
 #include "llvm/Support/raw_ostream.h"
-
+#include "llvm/Support/Debug.h"
 using namespace llvm;
 
 namespace {
@@ -129,7 +129,35 @@ EncodeInstruction(const MCInst &MI, raw_ostream &OS,
     Mips::LowerDextDins(TmpInst);
   }
 
+  //print encoding instruction
+
+  DEBUG(dbgs() << "--------------------------------\n");
+  DEBUG(dbgs() << "opcode" << MI.getOpcode()<<"\n");
+  for (int i = 0; i< MI.getNumOperands(); i++) {
+      DEBUG(dbgs() << "oprand " <<i<< MI.getOperand(i)<<"\n");
+  }
+
   uint32_t Binary = getBinaryCodeForInstr(TmpInst, Fixups);
+
+
+  /**********************************************/
+
+
+
+  DEBUG(dbgs() << "----------Encoding-----------\n");
+
+
+  int bits = 32;
+  char str[32] = {0};
+
+  // type punning because signed shift is implementation-defined
+  unsigned u = *(unsigned *)&Binary;
+  for(; bits--; u <<= 1)
+      str[bits] = u & 0x80000000 ? '1' : '0';
+
+  DEBUG(dbgs() <<str<<"\n" );
+
+  /************************************************/
 
   // Check for unimplemented opcodes.
   // Unfortunately in MIPS both NOP and SLL will come in with Binary == 0

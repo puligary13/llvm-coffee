@@ -1,4 +1,4 @@
-//===-- CoffeeELFObjectWriter.cpp - Coffee ELF Writer ---------------------------===//
+//===-- CoffeeELFObjectWriter.cpp - Coffee ELF Writer -------------------------===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -7,96 +7,213 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "MCTargetDesc/CoffeeBaseInfo.h"
 #include "MCTargetDesc/CoffeeFixupKinds.h"
 #include "MCTargetDesc/CoffeeMCTargetDesc.h"
+#include "llvm/MC/MCAssembler.h"
 #include "llvm/MC/MCELFObjectWriter.h"
+#include "llvm/MC/MCExpr.h"
+#include "llvm/MC/MCSection.h"
+#include "llvm/MC/MCValue.h"
 #include "llvm/Support/ErrorHandling.h"
+#include <list>
 
 using namespace llvm;
 
 namespace {
+  struct RelEntry {
+    RelEntry(const ELFRelocationEntry &R, const MCSymbol *S, int64_t O) :
+      Reloc(R), Sym(S), Offset(O) {}
+    ELFRelocationEntry Reloc;
+    const MCSymbol *Sym;
+    int64_t Offset;
+  };
+
+  typedef std::list<RelEntry> RelLs;
+  typedef RelLs::iterator RelLsIter;
+
   class CoffeeELFObjectWriter : public MCELFObjectTargetWriter {
   public:
-    CoffeeELFObjectWriter(uint8_t OSABI);
+    CoffeeELFObjectWriter(bool _is64Bit, uint8_t OSABI,
+                        bool _isN64, bool IsLittleEndian);
 
     virtual ~CoffeeELFObjectWriter();
-  protected:
+
     virtual unsigned GetRelocType(const MCValue &Target, const MCFixup &Fixup,
                                   bool IsPCRel, bool IsRelocWithSymbol,
                                   int64_t Addend) const;
-    virtual void adjustFixupOffset(const MCFixup &Fixup, uint64_t &RelocOffset);
+    virtual unsigned getEFlags() const;
+    virtual const MCSymbol *ExplicitRelSym(const MCAssembler &Asm,
+                                           const MCValue &Target,
+                                           const MCFragment &F,
+                                           const MCFixup &Fixup,
+                                           bool IsPCRel) const;
+    virtual void sortRelocs(const MCAssembler &Asm,
+                            std::vector<ELFRelocationEntry> &Relocs);
   };
 }
 
-CoffeeELFObjectWriter::CoffeeELFObjectWriter(uint8_t OSABI)
-  : MCELFObjectTargetWriter(false, OSABI,
-                            ELF::EM_COFFEE,
-                            /*HasRelocationAddend*/ true) {}
+CoffeeELFObjectWriter::CoffeeELFObjectWriter(bool _is64Bit, uint8_t OSABI,
+                                         bool _isN64, bool IsLittleEndian)
+  : MCELFObjectTargetWriter(_is64Bit, OSABI, ELF::EM_COFFEE,
+                            /*HasRelocationAddend*/ (_isN64) ? true : false,
+                            /*IsN64*/ _isN64) {}
 
-CoffeeELFObjectWriter::~CoffeeELFObjectWriter() {
+CoffeeELFObjectWriter::~CoffeeELFObjectWriter() {}
+
+// FIXME: get the real EABI Version from the Subtarget class.
+unsigned CoffeeELFObjectWriter::getEFlags() const {
+
+  // FIXME: We can't tell if we are PIC (dynamic) or CPIC (static)
+  unsigned Flag = ELF::EF_Coffee_ARCH;
+
+ /* if (is64Bit())
+    Flag |= ELF::EF_Coffee_ARCH_64R2;
+  else
+    Flag |= ELF::EF_Coffee_ARCH_32R2;*/
+  //Flag != ELF::EF_Coffee_ARCH;
+  return Flag;
+}
+
+const MCSymbol *CoffeeELFObjectWriter::ExplicitRelSym(const MCAssembler &Asm,
+                                                    const MCValue &Target,
+                                                    const MCFragment &F,
+                                                    const MCFixup &Fixup,
+                                                    bool IsPCRel) const {
+  assert(Target.getSymA() && "SymA cannot be 0.");
+  const MCSymbol &Sym = Target.getSymA()->getSymbol().AliasedSymbol();
+
+  if (Sym.getSection().getKind().isMergeableCString() ||
+      Sym.getSection().getKind().isMergeableConst())
+    return &Sym;
+
+  return NULL;
 }
 
 unsigned CoffeeELFObjectWriter::GetRelocType(const MCValue &Target,
-                                             const MCFixup &Fixup,
-                                             bool IsPCRel,
-                                             bool IsRelocWithSymbol,
-                                             int64_t Addend) const {
+                                           const MCFixup &Fixup,
+                                           bool IsPCRel,
+                                           bool IsRelocWithSymbol,
+                                           int64_t Addend) const {
   // determine the type of the relocation
-  unsigned Type;
-  if (IsPCRel) {
-    switch ((unsigned)Fixup.getKind()) {
-    default:
-      llvm_unreachable("Unimplemented");
-    case Coffee::fixup_Coffee_br24:
-      Type = ELF::R_Coffee_REL24;
-      break;
-    case FK_PCRel_4:
-      Type = ELF::R_Coffee_REL32;
-      break;
-    }
-  } else {
-    switch ((unsigned)Fixup.getKind()) {
-      default: llvm_unreachable("invalid fixup kind!");
-    case Coffee::fixup_Coffee_br24:
-      Type = ELF::R_Coffee_ADDR24;
-      break;
-    case Coffee::fixup_Coffee_brcond14:
-      Type = ELF::R_Coffee_ADDR14_BRTAKEN; // XXX: or BRNTAKEN?_
-      break;
-    case Coffee::fixup_Coffee_ha16:
-      Type = ELF::R_Coffee_ADDR16_HA;
-      break;
-    case Coffee::fixup_Coffee_lo16:
-      Type = ELF::R_Coffee_ADDR16_LO;
-      break;
-    case Coffee::fixup_Coffee_lo14:
-      Type = ELF::R_Coffee_ADDR14;
-      break;
-    case FK_Data_4:
-      Type = ELF::R_Coffee_ADDR32;
-      break;
-    case FK_Data_2:
-      Type = ELF::R_Coffee_ADDR16;
-      break;
-    }
+  unsigned Type = (unsigned)ELF::R_Coffee_NONE;
+  unsigned Kind = (unsigned)Fixup.getKind();
+
+  switch (Kind) {
+  default:
+    llvm_unreachable("invalid fixup kind!");
+  case FK_Data_4:
+    Type = ELF::R_Coffee_ADDR32;
+    break;
+  case FK_GPRel_4:
+    Type = ELF::R_Coffee_REL32;
+    break;
+  case Coffee::fixup_Coffee_25:
+    Type = ELF::R_Coffee_JMP25;
+    break;
+  case Coffee::fixup_Coffee_HI16:
+    Type = ELF::R_Coffee_HI16;
+    break;
+  case Coffee::fixup_Coffee_LO16:
+    Type = ELF::R_Coffee_LO16;
+    break;
   }
   return Type;
 }
 
-void CoffeeELFObjectWriter::
-adjustFixupOffset(const MCFixup &Fixup, uint64_t &RelocOffset) {
-  switch ((unsigned)Fixup.getKind()) {
-    case Coffee::fixup_Coffee_ha16:
-    case Coffee::fixup_Coffee_lo16:
-      RelocOffset += 2;
-      break;
-    default:
-      break;
+// Return true if R is either a GOT16 against a local symbol or HI16.
+static bool NeedsMatchingLo(const MCAssembler &Asm, const RelEntry &R) {
+  if (!R.Sym)
+    return false;
+
+  MCSymbolData &SD = Asm.getSymbolData(R.Sym->AliasedSymbol());
+
+  return ((R.Reloc.Type == ELF::R_Coffee_HI16) && !SD.isExternal()) ||
+    (R.Reloc.Type == ELF::R_Coffee_HI16);
+}
+
+static bool HasMatchingLo(const MCAssembler &Asm, RelLsIter I, RelLsIter Last) {
+  if (I == Last)
+    return false;
+
+  RelLsIter Hi = I++;
+
+  return (I->Reloc.Type == ELF::R_Coffee_LO16) && (Hi->Sym == I->Sym) &&
+    (Hi->Offset == I->Offset);
+}
+
+static bool HasSameSymbol(const RelEntry &R0, const RelEntry &R1) {
+  return R0.Sym == R1.Sym;
+}
+
+static int CompareOffset(const RelEntry &R0, const RelEntry &R1) {
+  return (R0.Offset > R1.Offset) ? 1 : ((R0.Offset == R1.Offset) ? 0 : -1);
+}
+
+void CoffeeELFObjectWriter::sortRelocs(const MCAssembler &Asm,
+                                     std::vector<ELFRelocationEntry> &Relocs) {
+  // Call the default function first. Relocations are sorted in descending
+  // order of r_offset.
+  MCELFObjectTargetWriter::sortRelocs(Asm, Relocs);
+
+  RelLs RelocLs;
+  std::vector<RelLsIter> Unmatched;
+
+  // Fill RelocLs. Traverse Relocs backwards so that relocations in RelocLs
+  // are in ascending order of r_offset.
+  for (std::vector<ELFRelocationEntry>::reverse_iterator R = Relocs.rbegin();
+       R != Relocs.rend(); ++R) {
+     std::pair<const MCSymbolRefExpr*, int64_t> P =
+       CoffeeGetSymAndOffset(*R->Fixup);
+     RelocLs.push_back(RelEntry(*R, P.first ? &P.first->getSymbol() : 0,
+                                P.second));
   }
+
+  // Get list of unmatched HI16 and GOT16.
+  for (RelLsIter R = RelocLs.begin(); R != RelocLs.end(); ++R)
+    if (NeedsMatchingLo(Asm, *R) && !HasMatchingLo(Asm, R, --RelocLs.end()))
+      Unmatched.push_back(R);
+
+  // Insert unmatched HI16 and GOT16 immediately before their matching LO16.
+  for (std::vector<RelLsIter>::iterator U = Unmatched.begin();
+       U != Unmatched.end(); ++U) {
+    RelLsIter LoPos = RelocLs.end(), HiPos = *U;
+    bool MatchedLo = false;
+
+    for (RelLsIter R = RelocLs.begin(); R != RelocLs.end(); ++R) {
+      if ((R->Reloc.Type == ELF::R_Coffee_LO16) && HasSameSymbol(*HiPos, *R) &&
+          (CompareOffset(*R, *HiPos) >= 0) &&
+          ((LoPos == RelocLs.end()) || ((CompareOffset(*R, *LoPos) < 0)) ||
+           (!MatchedLo && !CompareOffset(*R, *LoPos))))
+        LoPos = R;
+
+      MatchedLo = NeedsMatchingLo(Asm, *R) &&
+        HasMatchingLo(Asm, R, --RelocLs.end());
+    }
+
+    // If a matching LoPos was found, move HiPos and insert it before LoPos.
+    // Make the offsets of HiPos and LoPos match.
+    if (LoPos != RelocLs.end()) {
+      HiPos->Offset = LoPos->Offset;
+      RelocLs.insert(LoPos, *HiPos);
+      RelocLs.erase(HiPos);
+    }
+  }
+
+  // Put the sorted list back in reverse order.
+  assert(Relocs.size() == RelocLs.size());
+  unsigned I = RelocLs.size();
+
+  for (RelLsIter R = RelocLs.begin(); R != RelocLs.end(); ++R)
+    Relocs[--I] = R->Reloc;
 }
 
 MCObjectWriter *llvm::createCoffeeELFObjectWriter(raw_ostream &OS,
-                                               uint8_t OSABI) {
-  MCELFObjectTargetWriter *MOTW = new CoffeeELFObjectWriter(OSABI);
-  return createELFObjectWriter(MOTW, OS,  /*IsLittleEndian=*/false);
+                                                uint8_t OSABI,
+                                                bool IsLittleEndian,
+                                                bool Is64Bit) {
+  MCELFObjectTargetWriter *MOTW = new CoffeeELFObjectWriter(Is64Bit, OSABI,
+                                                (Is64Bit) ? true : false,
+                                                IsLittleEndian);
+  return createELFObjectWriter(MOTW, OS, IsLittleEndian);
 }
