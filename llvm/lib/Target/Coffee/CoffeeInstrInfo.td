@@ -73,18 +73,17 @@ def COFFEEDynAlloc  : SDNode<"COFFEEISD::DynAlloc", SDT_COFFEEDynAlloc,
 
 
 
-def immZExt16  : PatLeaf<(imm), [{ return isUInt<15>(N->getZExtValue());  }]>;
+
 
 def immZExt15  : PatLeaf<(imm), [{ return isInt<15>(N->getZExtValue());  }]>;
-
-def immSExt16  : PatLeaf<(imm), [{ return isInt<16>(N->getSExtValue()); }]>;
-
 def immSExt15  : PatLeaf<(imm), [{ return isInt<15>(N->getSExtValue());  }]>;
 
+def immZExt16  : PatLeaf<(imm), [{ return isUInt<16>(N->getZExtValue());  }]>;
+def immSExt16  : PatLeaf<(imm), [{ return isInt<16>(N->getSExtValue()); }]>;
 
-def jmptarget   : Operand<OtherVT> {
- // let EncoderMethod = "getJumpTargetOpValue";
-}
+def immZExt17  : PatLeaf<(imm), [{ return isUInt<17>(N->getZExtValue());  }]>;
+def immSExt17  : PatLeaf<(imm), [{ return isInt<17>(N->getSExtValue()); }]>;
+
 
 def LO16 : SDNodeXForm<imm, [{
   // Transformation function: get the low 16 bits.
@@ -105,29 +104,60 @@ def addr : ComplexPattern<iPTR, 2, "SelectAddr", [frameindex], [SDNPWantParent]>
 // Operand definition  //
 /////////////////////////
 
+def CoffeeMemAsmOperand : AsmOperandClass {
+  let Name = "Mem";
+  let ParserMethod = "parseMemOperand";
+}
+
+
+def CoffeeExprAsmOperand : AsmOperandClass {
+  let Name = "Expr";
+}
+
+def CoffeeAddrAsmOperand : AsmOperandClass {
+  let Name = "Addr";
+  let ParserMethod = "parseAddrOperand";
+}
+
+// address operand is used by ldra pesudo instruction
+def address : Operand<iPTR> {
+  let ParserMatchClass = CoffeeAddrAsmOperand;
+}
+
+def jmptarget   : Operand<OtherVT> {
+   let EncoderMethod = "getJumpTargetOpValue";
+   let ParserMatchClass = CoffeeExprAsmOperand;
+}
 
 def calltarget  : Operand<iPTR> {
   let EncoderMethod = "getJumpTargetOpValue";
+  let ParserMatchClass = CoffeeExprAsmOperand;
 }
-
-/// Shift Instructions
-def immZExt6 : ImmLeaf<i32, [{return Imm == (Imm & 0x3f);}]>;
-def shamt       : Operand<i32>;
 
 // Operand definition
 def bl_target : Operand<i32> {
   let EncoderMethod = "getCoffeeBLTargetOpValue";
   let OperandType = "OPERAND_PCREL";
+  let ParserMatchClass = CoffeeExprAsmOperand;
 }
 
 def brtarget    : Operand<OtherVT> {
   let EncoderMethod = "getBranchTargetOpValue";
   let OperandType = "OPERAND_PCREL";
   let DecoderMethod = "DecodeBranchTarget";
+  let ParserMatchClass = CoffeeExprAsmOperand;
 }
+
+/// Shift Instructions
+def immZExt6 : ImmLeaf<i32, [{return Imm == (Imm & 0x3f);}]>;
+def shamt       : Operand<i32>;
 
 def simm15      : Operand<i32>;
 def uimm15      : Operand<i32>;
+
+def imm5      : Operand<i32>;
+def imm6      : Operand<i32>;
+def imm2      : Operand<i32>;
 
 def simm16      : Operand<i32>;
 def uimm16      : Operand<i32>;
@@ -136,10 +166,9 @@ def uimm16      : Operand<i32>;
 def simm16_load  : Operand<i32>, ImmLeaf<i32, [{return isInt<16>(Imm);}]>;
 def uimm16_load  : Operand<i32>, ImmLeaf<i32, [{return isUInt<16>(Imm);}]>;
 
-def CoffeeMemAsmOperand : AsmOperandClass {
-  let Name = "Mem";
-  let ParserMethod = "parseMemOperand";
-}
+def simm17_cmp  : Operand<i32>, ImmLeaf<i32, [{return isInt<17>(Imm);}]>;
+def uimm17_cmp  : Operand<i32>, ImmLeaf<i32, [{return isUInt<17>(Imm);}]>;
+
 
 def MEMri : Operand<i32> {
   let PrintMethod = "printMemOperand";
@@ -227,8 +256,8 @@ class SetCC_I<bits<6> op, string instr_asm, Operand Od, RegisterClass RC>:
 
 
 class CBranch<bits<6> op, string instr_asm, PatFrag cond_op>:
-  BranchBase<op, (outs), (ins CRRC:$creg, brtarget:$imm16),
-             !strconcat(instr_asm, "\t$creg, $imm16"),
+  BranchBase<op, (outs), (ins CRRC:$creg, brtarget:$imm22),
+             !strconcat(instr_asm, "\t$creg, $imm22"),
              [], IIBranch> {
   let isBranch = 1;
   let isTerminator = 1;
@@ -237,10 +266,14 @@ class CBranch<bits<6> op, string instr_asm, PatFrag cond_op>:
 
 let isCompare = 1 in {
 multiclass I_cmp<PatFrag opnode> {
-  def ri : InstCoffee<(outs CRRC:$Rd ), (ins GPRC:$Rn, simm16:$imm),
-               "cmpi\t$Rd\t$Rn,\t$imm", [(set CRRC:$Rd, (opnode GPRC:$Rn, imm:$imm))], IIAlu, FrmI> {}
-  def rr : InstCoffee<(outs CRRC:$Rd), (ins GPRC:$Rn, GPRC:$Rm),
-               "cmp\t$Rd\t$Rn,\t$Rm", [(set CRRC:$Rd, (opnode GPRC:$Rn, GPRC:$Rm))], IIAlu, FrmI> {}
+  def ri : CMPI<0b110111, (outs CRRC:$rd ), (ins GPRC:$rt, simm17_cmp:$imm17),
+               "cmpi\t$rd\t$rt,\t$imm17", [(set CRRC:$rd, (opnode GPRC:$rt, immSExt17:$imm17))], IIAlu>;
+
+  def riu : CMPI<0b110111, (outs CRRC:$rd ), (ins GPRC:$rt, uimm17_cmp:$imm17),
+             "cmpi\t$rd\t$rt,\t$imm17", [(set CRRC:$rd, (opnode GPRC:$rt, immZExt17:$imm17))], IIAlu>;
+
+  def rr : CMPR<0b011001, (outs CRRC:$rd), (ins GPRC:$rt, GPRC:$rs),
+               "cmp\t$rd\t$rt,\t$rs", [(set CRRC:$rd, (opnode GPRC:$rt, GPRC:$rs))], IIAlu>;
 }
 }
 
@@ -283,7 +316,6 @@ class LoadM<bits<6> op, string instr_asm, PatFrag OpNode, RegisterClass RC,
   FMem<op, (outs RC:$rt), (ins MemOpnd:$addr),
      !strconcat(instr_asm, "\t$rt,\t$addr"),
      [(set RC:$rt, (OpNode addr:$addr))], IILoad> {
-  let isPseudo = Pseudo;
   bits <5> rt;
   bits<20> addr;
 
@@ -313,7 +345,6 @@ class StoreM<bits<6> op, string instr_asm, PatFrag OpNode, RegisterClass RC,
     let Inst{24-15} = addr{19-10};
     let Inst{9-5} = addr{9-5};
     let Inst{4-0} = addr{4-0};
-  let isPseudo = Pseudo;
 }
 
 
@@ -414,11 +445,80 @@ class NopF<bits<6> opcode>: F<opcode, (outs), (ins), "nop", [], IIAlu> {
 let Inst{15-10} = 0b111010;
 }
 
+
+class RetuF<bits<6> opcode>: F<opcode, (outs), (ins), "retu", [], IIAlu> {
+let Inst{9-5} = 0b11111;
+}
+
+class RetiF<bits<6> opcode>: F<opcode, (outs), (ins), "reti", [], IIAlu> {
+let Inst{24-22} = 0b000;
+}
+
+class DiF<bits<6> opcode>: F<opcode, (outs), (ins), "di", [], IIAlu> ;
+
+class EiF<bits<6> opcode>: F<opcode, (outs), (ins), "ei", [], IIAlu> ;
+
+class ScallF<bits<6> opcode>: F<opcode, (outs), (ins), "scall", [], IIAlu> {
+let Inst{4-0} = 0b11111;
+}
+
 class MulHiF<bits<6> opcode>: F<opcode, (outs GPRC:$rd), (ins), "mulhi\t$rd", [], IIAlu> {
 bits <5> rd;
 let Inst{4-0} = rd;
 }
 
+class SconF<bits<6> opcode>: F<opcode, (outs GPRC:$rd), (ins), "scon\t$rd", [], IIAlu> {
+bits <5> rd;
+let Inst{4-0} = rd;
+}
+
+class RconF<bits<6> opcode>: F<opcode, (outs), (ins GPRC:$rs), "rcon\t$rs", [], IIAlu> {
+bits <5> rs;
+let Inst{9-5} = rs;
+}
+
+class SwmF<bits<6> opcode>: F<opcode, (outs), (ins imm6:$imm), "swm\t$imm", [], IIAlu> {
+bits <6> imm;
+let Inst{15-10} = imm;
+}
+
+class TrapF<bits<6> opcode>: F<opcode, (outs), (ins imm5:$imm), "trap\t$imm", [], IIAlu> {
+bits <5> imm;
+let Inst{14-10} = imm;
+}
+
+class ChrsF<bits<6> opcode>: F<opcode, (outs), (ins imm5:$imm), "chrs\t$imm", [], IIAlu> {
+bits <2> imm;
+let Inst{11-10} = imm;
+}
+
+class ConhF<bits<6> opcode>: F<opcode, (outs GPRC:$rd), (ins GPRC:$rt, GPRC:$rs), "conh\t$rd,\t$rt,\t$rs", [], IIAlu> {
+bits<5> rd;
+bits<5> rt;
+bits<5> rs;
+let Inst{14-10} = rs;
+let Inst{9-5} = rt;
+let Inst{4-0} = rd;
+}
+
+class MovtcF<bits<6> opcode>: F<opcode, (outs GPRC:$rd), (ins GPRC:$rt, imm2:$imm), "movtc\t$imm,\t$rd,\t$rt", [], IIAlu> {
+bits<5> rd;
+bits<5> rt;
+bits<2> imm;
+let Inst{16-12} = rd;
+let Inst{11-10} = imm;
+let Inst{9-5} = rt;
+}
+
+class ExbF<bits<6> opcode>: F<opcode, (outs GPRC:$rd), (ins GPRC:$rt, imm2:$imm), "exb\t$rd,\t$rt,\t$imm", [], IIAlu> {
+bits<5> rd;
+bits<5> rt;
+bits<2> imm;
+
+let Inst{11-10} = imm;
+let Inst{9-5} = rt;
+let Inst{4-0} = rd;
+}
 
 // Jump and Link (Call)
 let isCall=1, hasDelaySlot=1, Defs = [LR] in {
@@ -444,7 +544,7 @@ let isCall=1, hasDelaySlot=1, Defs = [LR] in {
 def ADDiu   : ArithLogicI<0b101000, "addiu", add, uimm15, immZExt15, GPRC>;
 def ADDi    : ArithOverflowI<0b101101, "addi", add, simm15, immSExt15, GPRC>;
 def ORi     : ArithLogicI<0b101010, "ori", or, uimm15, immZExt15, GPRC>;
-
+def ANDi    : ArithOverflowI<0b101001, "andi", and, simm15, immSExt15, GPRC>;
 
 def LUi     : LoadImm<0b111111, "lui", GPRC, uimm16_load>;
 //LUri is used together with LLiu to handle 32 bit imm or address
@@ -501,12 +601,12 @@ def JMPR      : IndirectBranch<0b011011, GPRC>;
 def JAL       : JumpLink<0b111001, "jal">;
 def JALR      : JumpLinkReg<0b110101, "jalr", GPRC>;
 
-def BEGT    :  CBranch<0b000000, "begt", setge>;
-def BELT    :  CBranch<0b000000, "belt", setle>;
-def BEQ     :  CBranch<0b000000, "beq", seteq>;
-def BGT     :  CBranch<0b000000, "bgt", setgt>;
-def BLT     :  CBranch<0b000000, "blt", setlt>;
-def BNE     :  CBranch<0b000000, "bne", setne>;
+def BEGT    :  CBranch<0b100001, "begt", setge>;
+def BELT    :  CBranch<0b100010, "belt", setle>;
+def BEQ     :  CBranch<0b100011, "beq", seteq>;
+def BGT     :  CBranch<0b100100, "bgt", setgt>;
+def BLT     :  CBranch<0b100101, "blt", setlt>;
+def BNE     :  CBranch<0b100110, "bne", setne>;
 
 def RET     :  RetBase<0b011011, GPRC>;
 
@@ -524,6 +624,26 @@ def Mov     : MovF2R<0b010011>;
 def Not     : NotF2R<0b010100>;
 def NOP     : NopF<0b111010>;
 def MULHI   : MulHiF<0b011101>;
+
+def RETI     : RetiF<0b010111>;
+
+def RETU     : RetuF<0b010111>;
+def SCALL    : ScallF<0b111011>;
+
+def DI     : DiF<0b010101>;
+def EI    : EiF<0b010110>;
+
+def RCON   : RconF<0b011110>;
+def SCON   : SconF<0b011100>;
+
+def SWM    : SwmF<0b101111>;
+def TRAP   : TrapF<0b011000>;
+def CHRS   : ChrsF<0b110011>;
+def CONH   : ConhF<0b000100>;
+
+def MOVTC   : MovtcF<0b110110>;
+
+def EXB    : ExbF<0b110000>;
 
 
 // pseudo instruction definition
@@ -559,6 +679,37 @@ def DynAlloc : EffectiveAddress<"addiu\t$rt,\t$addr", GPRC, MEMri> {
 }
 
 
+
+
+//===----------------------------------------------------------------------===//
+// Pseudo Instruction definition
+//===----------------------------------------------------------------------===//
+
+
+class LoadImm32< string instr_asm, Operand Od, RegisterClass RC> :
+  CoffeeAsmPseudo<(outs RC:$rt), (ins Od:$imm32),
+                     !strconcat(instr_asm, "\t$rt,\t$imm32"), []> ;
+
+def LoadImm32Reg : LoadImm32<"ldri", shamt, GPRC>;
+
+class LoadAddress<string instr_asm, Operand MemOpnd, RegisterClass RC> :
+  CoffeeAsmPseudo<(outs RC:$rt), (ins MemOpnd:$addr),
+                     !strconcat(instr_asm, "\t$rt,\t$addr"), []> ;
+def LoadAddr32Reg : LoadAddress<"ldra", address, GPRC>;
+
+class LoadAddressImm<string instr_asm, Operand Od, RegisterClass RC> :
+  CoffeeAsmPseudo<(outs RC:$rt), (ins Od:$imm32),
+                     !strconcat(instr_asm, "\t$rt,\t$imm32"), []> ;
+def LoadAddr32Imm : LoadAddressImm<"ldra", shamt, GPRC>;
+
+
+def Pushr : CoffeeAsmPseudo<(outs), (ins GPRC:$rs), "push\t$rs", []> ;
+def Popr : CoffeeAsmPseudo<(outs), (ins GPRC:$rs), "pop\t$rs", []> ;
+def St : CoffeeAsmPseudo<(outs GPRC:$rd), (ins GPRC:$rt, simm15:$imm15), "st\t$rd\t$rt\t$imm15", []> ;
+def Ld : CoffeeAsmPseudo<(outs GPRC:$rd), (ins GPRC:$rt, simm15:$imm15), "ld\t$rd\t$rt\t$imm15", []> ;
+
+
+
 //===----------------------------------------------------------------------===//
 //  Arbitrary patterns that map to one or more instructions
 //===----------------------------------------------------------------------===//
@@ -568,6 +719,9 @@ def : Pat<(i32 immSExt16:$val),
 def : Pat<(i32 immZExt16:$val),
           (LLiu (LO16 imm:$val))>;
 // big immediates
+def : Pat<(i32 imm:$val),
+          (LUri (LLiu (LO16 imm:$val)), (HI16 imm:$val))>;
+
 def : Pat<(i32 imm:$val),
           (LUri (LLiu (LO16 imm:$val)), (HI16 imm:$val))>;
 
@@ -650,3 +804,7 @@ def : Pat<(brcond (i32 (setlt GPRC:$lhs, immSExt16:$rhs)), bb:$dst),
 
 def : Pat<(brcond GPRC:$cond, bb:$dst),
           (BNE (CMPri GPRC:$cond, 0), bb:$dst)>;
+
+
+
+

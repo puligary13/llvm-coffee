@@ -111,6 +111,9 @@ unsigned CoffeeELFObjectWriter::GetRelocType(const MCValue &Target,
   case Coffee::fixup_Coffee_25:
     Type = ELF::R_Coffee_JMP25;
     break;
+  case Coffee::fixup_Coffee_22:
+    Type = ELF::R_Coffee_BR22;
+    break;
   case Coffee::fixup_Coffee_HI16:
     Type = ELF::R_Coffee_HI16;
     break;

@@ -93,8 +93,7 @@ public:
   unsigned getSizeInsEncoding(const MCInst &MI, unsigned OpNo,
                               SmallVectorImpl<MCFixup> &Fixups) const;
 
-  unsigned getCoffeeBLTargetOpValue(const MCInst &MI, unsigned OpNo,
-                              SmallVectorImpl<MCFixup> &Fixups) const;
+
 
 
 }; // class CoffeeMCCodeEmitter
@@ -199,7 +198,7 @@ getBranchTargetOpValue(const MCInst &MI, unsigned OpNo,
 
   const MCExpr *Expr = MO.getExpr();
   Fixups.push_back(MCFixup::Create(0, Expr,
-                                   MCFixupKind(Coffee::fixup_Coffee_PC16)));
+                                   MCFixupKind(Coffee::fixup_Coffee_22)));
   return 0;
 }
 
@@ -393,10 +392,5 @@ CoffeeMCCodeEmitter::getSizeInsEncoding(const MCInst &MI, unsigned OpNo,
 }
 
 
-unsigned
-CoffeeMCCodeEmitter::getCoffeeBLTargetOpValue(const MCInst &MI, unsigned OpNo,
-                            SmallVectorImpl<MCFixup> &Fixups) const {
-
-}
 #include "CoffeeGenMCCodeEmitter.inc"
 

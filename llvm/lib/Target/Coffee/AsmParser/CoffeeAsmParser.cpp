@@ -86,6 +86,9 @@ class CoffeeAsmParser : public MCTargetAsmParser {
   CoffeeAsmParser::OperandMatchResultTy
   parseMemOperand(SmallVectorImpl<MCParsedAsmOperand*>&);
 
+  CoffeeAsmParser::OperandMatchResultTy
+  parseAddrOperand(SmallVectorImpl<MCParsedAsmOperand*>&);
+
   bool ParseOperand(SmallVectorImpl<MCParsedAsmOperand*> &,
                     StringRef Mnemonic);
 
@@ -104,6 +107,21 @@ class CoffeeAsmParser : public MCTargetAsmParser {
                             SmallVectorImpl<MCInst> &Instructions);
   void expandLoadAddressReg(MCInst &Inst, SMLoc IDLoc,
                             SmallVectorImpl<MCInst> &Instructions);
+
+
+  void expandPushr(MCInst &Inst, SMLoc IDLoc,
+                   SmallVectorImpl<MCInst> &Instructions);
+
+  void expandPopr(MCInst &Inst, SMLoc IDLoc,
+                  SmallVectorImpl<MCInst> &Instructions);
+
+  void expandSt(MCInst &Inst, SMLoc IDLoc,
+                SmallVectorImpl<MCInst> &Instructions);
+
+  void expandLd(MCInst &Inst, SMLoc IDLoc,
+                SmallVectorImpl<MCInst> &Instructions);
+
+
   bool reportParseError(StringRef ErrorMsg);
 
   bool parseMemOffset(const MCExpr *&Res);
@@ -173,7 +191,9 @@ class CoffeeOperand : public MCParsedAsmOperand {
     k_Memory,
     k_PostIndexRegister,
     k_Register,
-    k_Token
+    k_Token,
+    k_Expr,
+    k_Address
   } Kind;
 
   CoffeeOperand(KindTy K) : MCParsedAsmOperand(), Kind(K) {}
@@ -191,6 +211,14 @@ class CoffeeOperand : public MCParsedAsmOperand {
     struct {
       const MCExpr *Val;
     } Imm;
+
+    struct {
+      const MCExpr* ExprVal;
+    } Expr;
+
+    struct {
+      const MCExpr* AddrVal;
+    } Addr;
 
     struct {
       unsigned Base;
@@ -216,6 +244,18 @@ public:
       Inst.addOperand(MCOperand::CreateExpr(Expr));
   }
 
+  void addExprOperands(MCInst &Inst, unsigned N) const{
+      assert(N == 1 && "Invalid number of operands!");
+      const MCExpr *Expr = getExpr();
+      addExpr(Inst,Expr);
+  }
+
+  void addAddrOperands(MCInst &Inst, unsigned N) const{
+      assert(N == 1 && "Invalid number of operands!");
+      const MCExpr *Expr = getAddr();
+      addExpr(Inst,Expr);
+  }
+
   void addImmOperands(MCInst &Inst, unsigned N) const {
     assert(N == 1 && "Invalid number of operands!");
     const MCExpr *Expr = getImm();
@@ -235,6 +275,8 @@ public:
   bool isImm() const { return Kind == k_Immediate; }
   bool isToken() const { return Kind == k_Token; }
   bool isMem() const { return Kind == k_Memory; }
+  bool isExpr() const { return Kind == k_Expr; }
+  bool isAddr() const { return Kind == k_Address; }
 
   StringRef getToken() const {
     assert(Kind == k_Token && "Invalid access!");
@@ -259,6 +301,28 @@ public:
   const MCExpr *getMemOff() const {
     assert((Kind == k_Memory) && "Invalid access!");
     return Mem.Off;
+  }
+
+  const MCExpr *getExpr() const {
+      assert((Kind == k_Expr) && "Invalid access!");
+      return Expr.ExprVal;
+  }
+
+  const MCExpr *getAddr() const {
+      assert((Kind == k_Address) && "Invalid access!");
+      return Addr.AddrVal;
+  }
+
+  static CoffeeOperand *CreateExpr(const MCExpr *Val) {
+      CoffeeOperand *Op = new CoffeeOperand(k_Expr);
+      Op->Expr.ExprVal = Val;
+      return Op;
+  }
+
+  static CoffeeOperand *CreateAddr(const MCExpr *Val) {
+      CoffeeOperand *Op = new CoffeeOperand(k_Address);
+      Op->Addr.AddrVal = Val;
+      return Op;
   }
 
   static CoffeeOperand *CreateToken(StringRef Str, SMLoc S) {
@@ -308,35 +372,133 @@ public:
 }
 
 bool CoffeeAsmParser::needsExpansion(MCInst &Inst) {
-
-    return false;
- /* switch(Inst.getOpcode()) {
+  switch(Inst.getOpcode()) {
     case Coffee::LoadImm32Reg:
     case Coffee::LoadAddr32Imm:
+    case Coffee::Pushr:
+    case Coffee::Popr:
+    case Coffee::St:
+    case Coffee::Ld:
     case Coffee::LoadAddr32Reg:
       return true;
     default:
       return false;
-  }*/
+  }
 }
 
 void CoffeeAsmParser::expandInstruction(MCInst &Inst, SMLoc IDLoc,
                         SmallVectorImpl<MCInst> &Instructions){
-    // we are using real instruction in coffee
 
-    /* switch(Inst.getOpcode()) {
+     switch(Inst.getOpcode()) {
     case Coffee::LoadImm32Reg:
       return expandLoadImm(Inst, IDLoc, Instructions);
     case Coffee::LoadAddr32Imm:
       return expandLoadAddressImm(Inst,IDLoc,Instructions);
+
+     case Coffee::Pushr:
+         return expandPushr(Inst, IDLoc, Instructions);
+     case Coffee::Popr:
+         return expandPopr(Inst, IDLoc, Instructions);
+     case Coffee::St:
+         return expandSt(Inst, IDLoc, Instructions);
+     case Coffee::Ld:
+         return expandLd(Inst, IDLoc, Instructions);
     case Coffee::LoadAddr32Reg:
-      return expandLoadAddressReg(Inst,IDLoc,Instructions);
-    }*/
+      return expandLoadAddressReg(Inst, IDLoc, Instructions);
+    }
 }
+
+void CoffeeAsmParser::expandPushr(MCInst &Inst, SMLoc IDLoc,
+                                         SmallVectorImpl<MCInst> &Instructions){
+
+    MCInst tmpInst;
+    const MCOperand &RegOp = Inst.getOperand(0);
+    assert(RegOp.isReg() && "expected register operand kind");
+
+
+      tmpInst.setOpcode(Coffee::SW);
+      tmpInst.addOperand(MCOperand::CreateReg(RegOp.getReg()));
+      tmpInst.addOperand(MCOperand::CreateReg(Coffee::SP));
+      tmpInst.addOperand(MCOperand::CreateImm(0));
+      Instructions.push_back(tmpInst);
+      tmpInst.clear();
+      tmpInst.setOpcode(Coffee::ADDi);
+      tmpInst.addOperand(MCOperand::CreateReg(Coffee::SP));
+      tmpInst.addOperand(MCOperand::CreateReg(Coffee::SP));
+      tmpInst.addOperand(MCOperand::CreateImm(4));
+      Instructions.push_back(tmpInst);
+
+}
+
+void CoffeeAsmParser::expandPopr(MCInst &Inst, SMLoc IDLoc,
+                                         SmallVectorImpl<MCInst> &Instructions){
+
+    MCInst tmpInst;
+    const MCOperand &RegOp = Inst.getOperand(0);
+    assert(RegOp.isReg() && "expected register operand kind");
+
+
+      tmpInst.setOpcode(Coffee::LW);
+      tmpInst.addOperand(MCOperand::CreateReg(RegOp.getReg()));
+      tmpInst.addOperand(MCOperand::CreateReg(Coffee::SP));
+      tmpInst.addOperand(MCOperand::CreateImm(0));
+      Instructions.push_back(tmpInst);
+      tmpInst.clear();
+      tmpInst.setOpcode(Coffee::ADDi);
+      tmpInst.addOperand(MCOperand::CreateReg(Coffee::SP));
+      tmpInst.addOperand(MCOperand::CreateReg(Coffee::SP));
+      tmpInst.addOperand(MCOperand::CreateImm(-4));
+      Instructions.push_back(tmpInst);
+
+}
+
+void CoffeeAsmParser::expandSt(MCInst &Inst, SMLoc IDLoc,
+                                         SmallVectorImpl<MCInst> &Instructions){
+
+    MCInst tmpInst;
+
+    const MCOperand &ImmOp = Inst.getOperand(2);
+    assert(ImmOp.isImm() && "expected immediate operand kind");
+    const MCOperand &Reg1Op = Inst.getOperand(1);
+    assert(Reg1Op.isReg() && "expected register operand kind");
+    const MCOperand &Reg0Op = Inst.getOperand(0);
+    assert(Reg0Op.isReg() && "expected register operand kind");
+
+
+      tmpInst.setOpcode(Coffee::SW);
+      tmpInst.addOperand(MCOperand::CreateReg(Reg0Op.getReg()));
+      tmpInst.addOperand(MCOperand::CreateReg(Reg1Op.getReg()));
+      tmpInst.addOperand(MCOperand::CreateImm(ImmOp.getImm()));
+      Instructions.push_back(tmpInst);
+
+}
+
+void CoffeeAsmParser::expandLd(MCInst &Inst, SMLoc IDLoc,
+                                         SmallVectorImpl<MCInst> &Instructions){
+
+    MCInst tmpInst;
+
+    const MCOperand &ImmOp = Inst.getOperand(2);
+    assert(ImmOp.isImm() && "expected immediate operand kind");
+    const MCOperand &Reg1Op = Inst.getOperand(1);
+    assert(Reg1Op.isReg() && "expected register operand kind");
+    const MCOperand &Reg0Op = Inst.getOperand(0);
+    assert(Reg0Op.isReg() && "expected register operand kind");
+
+
+      tmpInst.setOpcode(Coffee::LW);
+      tmpInst.addOperand(MCOperand::CreateReg(Reg0Op.getReg()));
+      tmpInst.addOperand(MCOperand::CreateReg(Reg1Op.getReg()));
+      tmpInst.addOperand(MCOperand::CreateImm(ImmOp.getImm()));
+      Instructions.push_back(tmpInst);
+
+}
+
 
 void CoffeeAsmParser::expandLoadImm(MCInst &Inst, SMLoc IDLoc,
                                   SmallVectorImpl<MCInst> &Instructions){
- /* MCInst tmpInst;
+
+  MCInst tmpInst;
   const MCOperand &ImmOp = Inst.getOperand(1);
   assert(ImmOp.isImm() && "expected immediate operand kind");
   const MCOperand &RegOp = Inst.getOperand(0);
@@ -344,116 +506,90 @@ void CoffeeAsmParser::expandLoadImm(MCInst &Inst, SMLoc IDLoc,
 
   int ImmValue = ImmOp.getImm();
   tmpInst.setLoc(IDLoc);
+  // 16 bit unsigned
   if ( 0 <= ImmValue && ImmValue <= 65535) {
-    // for 0 <= j <= 65535.
-    // li d,j => ori d,$zero,j
-    tmpInst.setOpcode(isCoffee64() ? Coffee::ORi64 : Coffee::ORi);
+    tmpInst.setOpcode(Coffee::LLi);
     tmpInst.addOperand(MCOperand::CreateReg(RegOp.getReg()));
-    tmpInst.addOperand(
-              MCOperand::CreateReg(isCoffee64() ? Coffee::ZERO_64 : Coffee::ZERO));
     tmpInst.addOperand(MCOperand::CreateImm(ImmValue));
     Instructions.push_back(tmpInst);
   } else if ( ImmValue < 0 && ImmValue >= -32768) {
-    // for -32768 <= j < 0.
-    // li d,j => addiu d,$zero,j
-    tmpInst.setOpcode(Coffee::ADDiu); //TODO:no ADDiu64 in td files?
+    tmpInst.setOpcode(Coffee::LLi); //TODO:no ADDiu64 in td files?
     tmpInst.addOperand(MCOperand::CreateReg(RegOp.getReg()));
-    tmpInst.addOperand(
-              MCOperand::CreateReg(isCoffee64() ? Coffee::ZERO_64 : Coffee::ZERO));
     tmpInst.addOperand(MCOperand::CreateImm(ImmValue));
     Instructions.push_back(tmpInst);
   } else {
     // for any other value of j that is representable as a 32-bit integer.
-    // li d,j => lui d,hi16(j)
-    //           ori d,d,lo16(j)
-    tmpInst.setOpcode(isCoffee64() ? Coffee::LUi64 : Coffee::LUi);
+
+    tmpInst.setOpcode(Coffee::LUi);
     tmpInst.addOperand(MCOperand::CreateReg(RegOp.getReg()));
     tmpInst.addOperand(MCOperand::CreateImm((ImmValue & 0xffff0000) >> 16));
     Instructions.push_back(tmpInst);
     tmpInst.clear();
-    tmpInst.setOpcode(isCoffee64() ? Coffee::ORi64 : Coffee::ORi);
-    tmpInst.addOperand(MCOperand::CreateReg(RegOp.getReg()));
+    tmpInst.setOpcode(Coffee::LLi);
     tmpInst.addOperand(MCOperand::CreateReg(RegOp.getReg()));
     tmpInst.addOperand(MCOperand::CreateImm(ImmValue & 0xffff));
     tmpInst.setLoc(IDLoc);
     Instructions.push_back(tmpInst);
-  }*/
+  }
 }
 
 void CoffeeAsmParser::expandLoadAddressReg(MCInst &Inst, SMLoc IDLoc,
                                          SmallVectorImpl<MCInst> &Instructions){
-  /*MCInst tmpInst;
-  const MCOperand &ImmOp = Inst.getOperand(2);
-  assert(ImmOp.isImm() && "expected immediate operand kind");
-  const MCOperand &SrcRegOp = Inst.getOperand(1);
-  assert(SrcRegOp.isReg() && "expected register operand kind");
-  const MCOperand &DstRegOp = Inst.getOperand(0);
-  assert(DstRegOp.isReg() && "expected register operand kind");
-  int ImmValue = ImmOp.getImm();
-  if ( -32768 <= ImmValue && ImmValue <= 65535) {
-    //for -32768 <= j <= 65535.
-    //la d,j(s) => addiu d,s,j
-    tmpInst.setOpcode(Coffee::ADDiu); //TODO:no ADDiu64 in td files?
-    tmpInst.addOperand(MCOperand::CreateReg(DstRegOp.getReg()));
-    tmpInst.addOperand(MCOperand::CreateReg(SrcRegOp.getReg()));
-    tmpInst.addOperand(MCOperand::CreateImm(ImmValue));
-    Instructions.push_back(tmpInst);
-  } else {
-    //for any other value of j that is representable as a 32-bit integer.
-    //la d,j(s) => lui d,hi16(j)
-    //             ori d,d,lo16(j)
-    //             addu d,d,s
-    tmpInst.setOpcode(isCoffee64()?Coffee::LUi64:Coffee::LUi);
-    tmpInst.addOperand(MCOperand::CreateReg(DstRegOp.getReg()));
-    tmpInst.addOperand(MCOperand::CreateImm((ImmValue & 0xffff0000) >> 16));
-    Instructions.push_back(tmpInst);
-    tmpInst.clear();
-    tmpInst.setOpcode(isCoffee64()?Coffee::ORi64:Coffee::ORi);
-    tmpInst.addOperand(MCOperand::CreateReg(DstRegOp.getReg()));
-    tmpInst.addOperand(MCOperand::CreateReg(DstRegOp.getReg()));
-    tmpInst.addOperand(MCOperand::CreateImm(ImmValue & 0xffff));
-    Instructions.push_back(tmpInst);
-    tmpInst.clear();
-    tmpInst.setOpcode(Coffee::ADDu);
-    tmpInst.addOperand(MCOperand::CreateReg(DstRegOp.getReg()));
-    tmpInst.addOperand(MCOperand::CreateReg(DstRegOp.getReg()));
-    tmpInst.addOperand(MCOperand::CreateReg(SrcRegOp.getReg()));
-    Instructions.push_back(tmpInst);
-  }*/
+    MCInst tmpInst;
+     MCOperand &ExprOp = Inst.getOperand(1);
+    assert(ExprOp.isExpr() && "expected immediate operand kind");
+
+     MCOperand &RegOp = Inst.getOperand(0);
+    assert(RegOp.isReg() && "expected register operand kind");
+
+
+      const MCSymbolRefExpr* SymbolExpr = static_cast<const MCSymbolRefExpr*>(ExprOp.getExpr());
+
+      const MCSymbolRefExpr* HIExpr = MCSymbolRefExpr::Create(&SymbolExpr->getSymbol(), MCSymbolRefExpr::VK_Coffee_ABS_HI, getContext());
+
+      const MCSymbolRefExpr* LoExpr = MCSymbolRefExpr::Create(&SymbolExpr->getSymbol(), MCSymbolRefExpr::VK_Coffee_ABS_LO, getContext());
+
+      tmpInst.setOpcode(Coffee::LUi);
+      tmpInst.addOperand(MCOperand::CreateReg(RegOp.getReg()));
+      tmpInst.addOperand(MCOperand::CreateExpr(HIExpr));
+      Instructions.push_back(tmpInst);
+      tmpInst.clear();
+
+      tmpInst.setOpcode(Coffee::LLi);
+      tmpInst.addOperand(MCOperand::CreateReg(RegOp.getReg()));
+      tmpInst.addOperand(MCOperand::CreateExpr(LoExpr));
+      Instructions.push_back(tmpInst);
+
 }
 
 void CoffeeAsmParser::expandLoadAddressImm(MCInst &Inst, SMLoc IDLoc,
                                          SmallVectorImpl<MCInst> &Instructions){
- /* MCInst tmpInst;
+  MCInst tmpInst;
   const MCOperand &ImmOp = Inst.getOperand(1);
   assert(ImmOp.isImm() && "expected immediate operand kind");
   const MCOperand &RegOp = Inst.getOperand(0);
   assert(RegOp.isReg() && "expected register operand kind");
   int ImmValue = ImmOp.getImm();
-  if ( -32768 <= ImmValue && ImmValue <= 65535) {
-    //for -32768 <= j <= 65535.
-    //la d,j => addiu d,$zero,j
-    tmpInst.setOpcode(Coffee::ADDiu);
+  // upper 16 bits of the integer in this range are already zero so
+  // we can lli for that.
+  if ( 0 <= ImmValue && ImmValue <= 65535) {
+
+    tmpInst.setOpcode(Coffee::LLi);
     tmpInst.addOperand(MCOperand::CreateReg(RegOp.getReg()));
-    tmpInst.addOperand(
-              MCOperand::CreateReg(isCoffee64()?Coffee::ZERO_64:Coffee::ZERO));
     tmpInst.addOperand(MCOperand::CreateImm(ImmValue));
     Instructions.push_back(tmpInst);
   } else {
-    //for any other value of j that is representable as a 32-bit integer.
-    //la d,j => lui d,hi16(j)
-    //          ori d,d,lo16(j)
-    tmpInst.setOpcode(isCoffee64()?Coffee::LUi64:Coffee::LUi);
+
+    tmpInst.setOpcode(Coffee::LUi);
     tmpInst.addOperand(MCOperand::CreateReg(RegOp.getReg()));
     tmpInst.addOperand(MCOperand::CreateImm((ImmValue & 0xffff0000) >> 16));
     Instructions.push_back(tmpInst);
     tmpInst.clear();
-    tmpInst.setOpcode(isCoffee64()?Coffee::ORi64:Coffee::ORi);
-    tmpInst.addOperand(MCOperand::CreateReg(RegOp.getReg()));
+    tmpInst.setOpcode(Coffee::LLi);
     tmpInst.addOperand(MCOperand::CreateReg(RegOp.getReg()));
     tmpInst.addOperand(MCOperand::CreateImm(ImmValue & 0xffff));
     Instructions.push_back(tmpInst);
-  }*/
+  }
 }
 
 bool CoffeeAsmParser::
@@ -503,50 +639,101 @@ MatchAndEmitInstruction(SMLoc IDLoc, unsigned &Opcode,
 
 int CoffeeAsmParser::matchRegisterName(StringRef Name) {
 
-   int CC;
+    int CC;
 
     CC = StringSwitch<unsigned>(Name)
-      .Case("t0",  Coffee::T0)
-      .Case("t1",  Coffee::T1)
-      .Case("t2",  Coffee::T2)
-      .Case("t3",  Coffee::T3)
-      .Case("t4",  Coffee::T4)
-      .Case("t5",  Coffee::T5)
-      .Case("t6",  Coffee::T6)
-      .Case("t7",  Coffee::T7)
-      .Case("t8",  Coffee::T8)
-      .Case("t9",  Coffee::T9)
-      .Case("s0",  Coffee::S0)
-      .Case("s1",  Coffee::S1)
-      .Case("s2",  Coffee::S2)
-      .Case("s3",  Coffee::S3)
-      .Case("s4",  Coffee::S4)
-      .Case("s5",  Coffee::S5)
-      .Case("s6",  Coffee::S6)
-      .Case("s7",  Coffee::S7)
-      .Case("s8",  Coffee::S8)
-      .Case("s9",  Coffee::S9)
-      .Case("s10",  Coffee::S10)
-      .Case("s11",  Coffee::S11)
-      .Case("a0",  Coffee::A0)
-      .Case("a1",  Coffee::A1)
-      .Case("a2",  Coffee::A2)
-      .Case("a3",  Coffee::A3)
-      .Case("v0",  Coffee::V0)
-      .Case("v1",  Coffee::V1)
-      .Case("gp",  Coffee::GP)
-      .Case("sp",  Coffee::SP)
-      .Case("fp",  Coffee::FP)
-      .Case("lr",  Coffee::LR)
-      .Default(-1);
+            .Case("t0",  Coffee::T0)
+            .Case("t1",  Coffee::T1)
+            .Case("t2",  Coffee::T2)
+            .Case("t3",  Coffee::T3)
+            .Case("t4",  Coffee::T4)
+            .Case("t5",  Coffee::T5)
+            .Case("t6",  Coffee::T6)
+            .Case("t7",  Coffee::T7)
+            .Case("t8",  Coffee::T8)
+            .Case("t9",  Coffee::T9)
+            .Case("s0",  Coffee::S0)
+            .Case("s1",  Coffee::S1)
+            .Case("s2",  Coffee::S2)
+            .Case("s3",  Coffee::S3)
+            .Case("s4",  Coffee::S4)
+            .Case("s5",  Coffee::S5)
+            .Case("s6",  Coffee::S6)
+            .Case("s7",  Coffee::S7)
+            .Case("s8",  Coffee::S8)
+            .Case("s9",  Coffee::S9)
+            .Case("s10",  Coffee::S10)
+            .Case("s11",  Coffee::S11)
+            .Case("a0",  Coffee::A0)
+            .Case("a1",  Coffee::A1)
+            .Case("a2",  Coffee::A2)
+            .Case("a3",  Coffee::A3)
+            .Case("v0",  Coffee::V0)
+            .Case("v1",  Coffee::V1)
+            .Case("gp",  Coffee::GP)
+            .Case("sp",  Coffee::SP)
+            .Case("fp",  Coffee::FP)
+            .Case("lr",  Coffee::LR)
+            // register alias
+            .Case("r0",  Coffee::T0)
+            .Case("r1",  Coffee::T1)
+            .Case("r2",  Coffee::T2)
+            .Case("r3",  Coffee::T3)
+            .Case("r4",  Coffee::T4)
+            .Case("r5",  Coffee::T5)
+            .Case("r6",  Coffee::T6)
+            .Case("r7",  Coffee::T7)
+            .Case("r8",  Coffee::T8)
+            .Case("r9",  Coffee::T9)
+            .Case("r10",  Coffee::S0)
+            .Case("r11",  Coffee::S1)
+            .Case("r12",  Coffee::S2)
+            .Case("r13",  Coffee::S3)
+            .Case("r14",  Coffee::S4)
+            .Case("r15",  Coffee::S5)
+            .Case("r16",  Coffee::S6)
+            .Case("r17",  Coffee::S7)
+            .Case("r18",  Coffee::S8)
+            .Case("r19",  Coffee::S9)
+            .Case("r20",  Coffee::S10)
+            .Case("r21",  Coffee::S11)
+            .Case("r22",  Coffee::A0)
+            .Case("r23",  Coffee::A1)
+            .Case("r24",  Coffee::A2)
+            .Case("r25",  Coffee::A3)
+            .Case("r26",  Coffee::V0)
+            .Case("r27",  Coffee::V1)
+            .Case("r28",  Coffee::GP)
+            .Case("r29",  Coffee::SP)
+            .Case("r30",  Coffee::FP)
+            .Case("r31",  Coffee::LR)
+
+            .Case("cr0",  Coffee::CR0)
+            .Case("c0",  Coffee::CR0)
+            .Case("cr1",  Coffee::CR1)
+            .Case("c1",  Coffee::CR1)
+            .Case("cr2",  Coffee::CR2)
+            .Case("c2",  Coffee::CR2)
+            .Case("cr3",  Coffee::CR3)
+            .Case("c3",  Coffee::CR3)
+
+            .Case("cr4",  Coffee::CR4)
+            .Case("c4",  Coffee::CR4)
+            .Case("cr5",  Coffee::CR5)
+            .Case("c5",  Coffee::CR5)
+            .Case("cr6",  Coffee::CR6)
+            .Case("c6",  Coffee::CR6)
+            .Case("cr7",  Coffee::CR7)
+            .Case("c7",  Coffee::CR7)
+            .Default(-1);
 
 
-  if (CC != -1)
-    return CC;
+    if (CC != -1)
+        return CC;
 
-  if (Name[0] == 'f') {
-     // we don't have floating point
-    /*StringRef NumString = Name.substr(1);
+    if (Name[0] == 'f') {
+        // we don't have floating point
+        /*StringRef NumString = Name.substr(1);
     unsigned IntVal;
     if( NumString.getAsInteger(10, IntVal))
       return -1; // not integer
@@ -566,9 +753,9 @@ int CoffeeAsmParser::matchRegisterName(StringRef Name) {
         return -1;
       return getReg(Coffee::AFGR64RegClassID, IntVal/2);
     }*/
-  }
+    }
 
-  return -1;
+    return -1;
 }
 void CoffeeAsmParser::setDefaultFpFormat() {
 
@@ -695,6 +882,7 @@ bool CoffeeAsmParser::ParseOperand(SmallVectorImpl<MCParsedAsmOperand*>&Operands
   default:
     Error(Parser.getTok().getLoc(), "unexpected token in operand");
     return true;
+
   case AsmToken::Dollar: {
     // parse register
     SMLoc S = Parser.getTok().getLoc();
@@ -738,6 +926,68 @@ bool CoffeeAsmParser::ParseOperand(SmallVectorImpl<MCParsedAsmOperand*>&Operands
     return false;
   }
   case AsmToken::Identifier:
+  {
+      // quoted label names
+     const MCExpr *IdVal;
+     SMLoc S = Parser.getTok().getLoc();
+     if (getParser().ParseExpression(IdVal))
+       return true;
+
+     if (IdVal->getKind() == MCExpr::Constant) {
+     SMLoc E = SMLoc::getFromPointer(Parser.getTok().getLoc().getPointer() - 1);
+     Operands.push_back(CoffeeOperand::CreateImm(IdVal, S, E));
+     return false;
+     } else if (IdVal->getKind() == MCExpr::SymbolRef) {
+
+     // get the value this symbol is assigned , if it is register,
+
+         if (static_cast<const MCSymbolRefExpr*>(IdVal)->getSymbol().isVariable()) {
+             const MCExpr* val = static_cast<const MCSymbolRefExpr*>(IdVal)->getSymbol().getVariableValue();
+
+             StringRef regstr = static_cast<const MCSymbolRefExpr*>(val)->getSymbol().getName();
+             int RegNum = matchRegisterName(regstr.lower());
+             if (RegNum != -1) {
+                 SMLoc E = SMLoc::getFromPointer(Parser.getTok().getLoc().getPointer() - 1);
+                 Operands.push_back(CoffeeOperand::CreateReg(RegNum, S, E));
+             }
+         } else if (static_cast<const MCSymbolRefExpr*>(IdVal)->getSymbol().isDefined()) {
+
+            /* if (Expr == 0)
+               Inst.addOperand(MCOperand::CreateImm(0));
+             else if (const MCConstantExpr *CE = dyn_cast<MCConstantExpr>(Expr))
+               Inst.addOperand(MCOperand::CreateImm(CE->getValue()));
+             else
+               Inst.addOperand(MCOperand::CreateExpr(Expr));*/
+
+             Operands.push_back(CoffeeOperand::CreateExpr(IdVal));
+
+
+         } else if (static_cast<const MCSymbolRefExpr*>(IdVal)->getSymbol().isUndefined()) {
+             StringRef Name = static_cast<const MCSymbolRefExpr*>(IdVal)->getSymbol().getName();
+
+             int RegNum = matchRegisterName(Name.lower());
+             if (RegNum != -1) {
+                 SMLoc E = SMLoc::getFromPointer(Parser.getTok().getLoc().getPointer() - 1);
+                 Operands.push_back(CoffeeOperand::CreateReg(RegNum, S, E));
+             } else {
+                 MCSymbol *Sym = getContext().LookupSymbol(Name);
+                 bool tes = Sym->isDefined();
+                 if (Sym) {
+                     Sym->setUsed(true);
+                     Operands.push_back(CoffeeOperand::CreateExpr(IdVal));
+                 }
+             }
+
+         } else {
+             int k = 12;
+         }
+
+         return false;
+
+     } else {
+     return false;
+     }
+  }
   case AsmToken::LParen:
   case AsmToken::Minus:
   case AsmToken::Plus:
@@ -919,6 +1169,44 @@ CoffeeAsmParser::OperandMatchResultTy CoffeeAsmParser::parseMemOperand(
   delete op;
   return MatchOperand_Success;
 }
+
+
+CoffeeAsmParser::OperandMatchResultTy CoffeeAsmParser::parseAddrOperand(
+        SmallVectorImpl<MCParsedAsmOperand*>&Operands) {
+
+    const MCExpr *IdVal;
+    SMLoc S = Parser.getTok().getLoc();
+    if (getParser().ParseExpression(IdVal))
+      return MatchOperand_ParseFail;
+
+    if (IdVal->getKind() == MCExpr::SymbolRef) {
+
+        CoffeeOperand *Mnemonic = static_cast<CoffeeOperand*>(Operands[0]);
+        bool Defined = static_cast<const MCSymbolRefExpr*>(IdVal)->getSymbol().isDefined();
+
+        if (Mnemonic->getToken() == "ldra" )
+            if (Defined) {
+                Operands.push_back(CoffeeOperand::CreateAddr(IdVal));
+                return MatchOperand_Success;
+            } else {
+                StringRef Name = static_cast<const MCSymbolRefExpr*>(IdVal)->getSymbol().getName();
+                MCSymbol *Sym = getContext().LookupSymbol(Name);
+                if (Sym) {
+                    Sym->setUsed(true);
+                    Operands.push_back(CoffeeOperand::CreateAddr(IdVal));
+                    return MatchOperand_Success;
+                } else {
+                    SMLoc Loc = getLexer().getLoc();
+                    Parser.EatToEndOfStatement();
+                    Error(Loc, "unexpected token in argument list");
+                    return MatchOperand_ParseFail;
+                }
+            }
+    }
+
+    return MatchOperand_ParseFail;
+}
+
 
 MCSymbolRefExpr::VariantKind CoffeeAsmParser::getVariantKind(StringRef Symbol) {
 
@@ -1250,6 +1538,24 @@ bool CoffeeAsmParser::ParseDirective(AsmToken DirectiveID) {
     return false;
   }
 
+  if (DirectiveID.getString() == ".word") {
+    // ignore this directive for now
+    Parser.Lex();
+    return false;
+  }
+
+  if (DirectiveID.getString() == ".proc") {
+    // ignore this directive for now
+    Parser.Lex();
+    return false;
+  }
+
+  if (DirectiveID.getString() == ".endproc") {
+    // ignore this directive for now
+    Parser.Lex();
+    return false;
+  }
+
   if (DirectiveID.getString() == ".end") {
     // ignore this directive for now
     Parser.Lex();
@@ -1262,9 +1568,15 @@ bool CoffeeAsmParser::ParseDirective(AsmToken DirectiveID) {
     return false;
   }
 
-  if (DirectiveID.getString() == ".set") {
-    return parseDirectiveSet();
+  if (DirectiveID.getString() == ".code") {
+    // ignore this directive for now
+    Parser.EatToEndOfStatement();
+    return false;
   }
+
+ /* if (DirectiveID.getString() == ".set") {
+    return parseDirectiveSet();
+  }*/
 
   if (DirectiveID.getString() == ".fmask") {
     // ignore this directive for now
@@ -1287,8 +1599,11 @@ bool CoffeeAsmParser::ParseDirective(AsmToken DirectiveID) {
   return true;
 }
 
+extern "C" void LLVMInitializeCoffeeAsmLexer();
+
 extern "C" void LLVMInitializeCoffeeAsmParser() {
   RegisterMCAsmParser<CoffeeAsmParser> X(TheCoffeeTarget);
+  LLVMInitializeCoffeeAsmLexer();
 }
 
 #define GET_REGISTER_MATCHER

@@ -113,18 +113,43 @@ class FI<bits<6> op, dag outs, dag ins, string asmstr, list<dag> pattern,
   let Inst{4-0}  = rt;
 }
 
+class CMPI<bits<6> op, dag outs, dag ins, string asmstr, list<dag> pattern,
+InstrItinClass itin>: InstCoffee<outs, ins, asmstr, pattern, itin, FrmI>
+{
+  bits<3> rd;
+  bits<5> rt;
+  bits<17> imm17;
+  let Opcode = op;
+  let Inst{24-22} = rd;
+  let Inst{9-5} = rt;
+  let Inst{21-10} = imm17{16-5};
+  let Inst{4-0} = imm17{4-0};
+}
 
+class CMPR<bits<6> op, dag outs, dag ins, string asmstr, list<dag> pattern,
+InstrItinClass itin>: InstCoffee<outs, ins, asmstr, pattern, itin, FrmI>
+{
+  bits<3> rd;
+  bits<5> rt;
+  bits<5> rs;
+  let Opcode = op;
+  let Inst{24-22} = rd;
+  let Inst{9-5} = rt;
+  let Inst{14-10} = rs;
+}
 
 class BranchBase<bits<6> op, dag outs, dag ins, string asmstr,
                   list<dag> pattern, InstrItinClass itin>:
   InstCoffee<outs, ins, asmstr, pattern, itin, FrmI>
 {
-  bits<22>  imm;
+  bits<22>  imm22;
+  bits<3> creg;
 
   let Opcode = op;
 
-  let Inst{24-22} = 0b000; // select CR0
-  let Inst{21-0} = imm;
+  let Inst{25} = 0b1;
+  let Inst{24-22} = creg;
+  let Inst{21-0} = imm22;
 
 }
 
@@ -143,6 +168,11 @@ class FJ<bits<6> op, dag outs, dag ins, string asmstr, list<dag> pattern,
 class CoffeePseudo<dag outs, dag ins, string asmstr, list<dag> pattern>:
       InstCoffee<outs, ins, asmstr, pattern, IIPseudo, Pseudo> {
   let isCodeGenOnly = 1;
+  let isPseudo = 1;
+}
+
+class CoffeeAsmPseudo<dag outs, dag ins, string asmstr, list<dag> pattern>:
+      InstCoffee<outs, ins, asmstr, pattern, IIPseudo, Pseudo> {
   let isPseudo = 1;
 }
 

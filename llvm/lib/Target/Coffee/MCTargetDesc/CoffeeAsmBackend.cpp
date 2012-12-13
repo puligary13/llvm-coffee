@@ -59,10 +59,11 @@ static unsigned adjustFixupValue(unsigned Kind, uint64_t Value) {
     Value >>= 2;
     break;
   case Coffee::fixup_Coffee_25:
+  case Coffee::fixup_Coffee_22:
     // So far we are only using this type for jumps.
     // The displacement is then divided by 4 to give us an 28 bit
     // address range.
-    Value >>= 2;
+    // Value >>= 2;
     break;
   case Coffee::fixup_Coffee_HI16:
   case Coffee::fixup_Coffee_GOT_Local:
@@ -160,6 +161,7 @@ public:
       { "fixup_Coffee_REL32",        0,     32,   0 },
       { "fixup_Coffee_26",           0,     26,   0 },
       { "fixup_Coffee_25",           0,     25,   0 },
+      { "fixup_Coffee_22",           0,     22,   0 },
       { "fixup_Coffee_HI16",         0,     16,   0 },
       { "fixup_Coffee_LO16",         0,     16,   0 },
       { "fixup_Coffee_GPREL16",      0,     16,   0 },

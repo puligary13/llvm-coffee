@@ -1922,9 +1922,10 @@ bool AsmParser::ParseAssignment(StringRef Name, bool allow_redef,
       return Error(EqualLoc, "redefinition of '" + Name + "'");
     else if (!Sym->isVariable())
       return Error(EqualLoc, "invalid assignment to '" + Name + "'");
-    else if (!isa<MCConstantExpr>(Sym->getVariableValue()))
-      return Error(EqualLoc, "invalid reassignment of non-absolute variable '" +
-                   Name + "'");
+   //guoqing: remove so that asm parser allows variable redefined
+    // else if (!isa<MCConstantExpr>(Sym->getVariableValue()))
+   //   return Error(EqualLoc, "invalid reassignment of non-absolute variable '" +
+   //                Name + "'");
 
     // Don't count these checks as uses.
     Sym->setUsed(false);

@@ -37,6 +37,9 @@ namespace Coffee {
     // Jump 25 bit fixup
     fixup_Coffee_25,
 
+    // branch 22
+    fixup_Coffee_22,
+
     // Pure upper 16 bit fixup resulting in - R_Coffee_HI16.
     fixup_Coffee_HI16,
 

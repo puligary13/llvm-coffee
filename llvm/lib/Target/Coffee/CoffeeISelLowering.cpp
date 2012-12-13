@@ -1067,7 +1067,7 @@ SDValue CoffeeTargetLowering::LowerGlobalAddress(SDValue Op,
 
     SDValue LoPart = DAG.getNode(COFFEEISD::Lo, dl, MVT::i32, GALo);
 
-    return DAG.getNode(COFFEEISD::Hi, dl, MVT::i32, LoPart, GALo);
+    return DAG.getNode(COFFEEISD::Hi, dl, MVT::i32, LoPart, GAHi);
 
 
 }
@@ -1108,9 +1108,23 @@ CoffeeTargetLowering::getCoffeeCmp(SDValue LHS, SDValue RHS,
                              SelectionDAG &DAG,
                              DebugLoc dl) const {
   if (ConstantSDNode *RHSC = dyn_cast<ConstantSDNode>(RHS.getNode())) {
-    unsigned C = RHSC->getZExtValue();
+
+      // The following definition in CoffeeInstrInfo.td should make the imm fits
+
+     /* multiclass I_cmp<PatFrag opnode> {
+  def ri : CMPI<0b110111, (outs CRRC:$rd ), (ins GPRC:$rt, simm17_cmp:$imm17),
+               "cmpi\t$rd\t$rt,\t$imm17", [(set CRRC:$rd, (opnode GPRC:$rt, immSExt17:$imm17))], IIAlu>;
+
+  def riu : CMPI<0b110111, (outs CRRC:$rd ), (ins GPRC:$rt, uimm17_cmp:$imm17),
+             "cmpi\t$rd\t$rt,\t$imm17", [(set CRRC:$rd, (opnode GPRC:$rt, immZExt17:$imm17))], IIAlu>;
+
+  def rr : CMPR<0b011001, (outs CRRC:$rd), (ins GPRC:$rt, GPRC:$rs),
+               "cmp\t$rd\t$rt,\t$rs", [(set CRRC:$rd, (opnode GPRC:$rt, GPRC:$rs))], IIAlu>;
+}*/
+
+      /*unsigned C = RHSC->getZExtValue();
     if (!isLegalICmpImmediate(C))
-        llvm_unreachable("coffee: cmp imm doesn't fit");
+        llvm_unreachable("coffee: cmp imm doesn't fit");*/
   }
 
   SDVTList VTLs = DAG.getVTList(MVT::i32, MVT::Glue);
