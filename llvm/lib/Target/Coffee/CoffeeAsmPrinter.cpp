@@ -50,14 +50,14 @@ using namespace llvm;
 void CoffeeAsmPrinter::EmitInstrWithMacroNoAT(const MachineInstr *MI) {
   MCInst TmpInst;
 
-  MCInstLowering.Lower(MI, TmpInst);
+ /* MCInstLowering.Lower(MI, TmpInst);
   OutStreamer.EmitRawText(StringRef("\t.set\tmacro"));
- /* if (CoffeeFI->getEmitNOAT())
+  if (CoffeeFI->getEmitNOAT())
     OutStreamer.EmitRawText(StringRef("\t.set\tat"));
   OutStreamer.EmitInstruction(TmpInst);
   if (CoffeeFI->getEmitNOAT())
-    OutStreamer.EmitRawText(StringRef("\t.set\tnoat"));*/
-  OutStreamer.EmitRawText(StringRef("\t.set\tnomacro"));
+    OutStreamer.EmitRawText(StringRef("\t.set\tnoat"));
+  OutStreamer.EmitRawText(StringRef("\t.set\tnomacro"));*/
 }
 
 bool CoffeeAsmPrinter::runOnMachineFunction(MachineFunction &MF) {
@@ -175,7 +175,7 @@ void CoffeeAsmPrinter::printHex32(unsigned Value, raw_ostream &O) {
 
 /// Frame Directive
 void CoffeeAsmPrinter::emitFrameDirective() {
-  const TargetRegisterInfo &RI = *TM.getRegisterInfo();
+    /* const TargetRegisterInfo &RI = *TM.getRegisterInfo();
 
   unsigned stackReg  = RI.getFrameRegister(*MF);
   unsigned returnReg = RI.getRARegister();
@@ -185,7 +185,7 @@ void CoffeeAsmPrinter::emitFrameDirective() {
     OutStreamer.EmitRawText("\t.frame\t$" +
            StringRef(CoffeeInstPrinter::getRegisterName(stackReg)).lower() +
            "," + Twine(stackSize) + ",$" +
-           StringRef(CoffeeInstPrinter::getRegisterName(returnReg)).lower());
+           StringRef(CoffeeInstPrinter::getRegisterName(returnReg)).lower());*/
 }
 
 /// Emit Set directives.
@@ -202,9 +202,10 @@ void CoffeeAsmPrinter::EmitFunctionEntryLabel() {
 /// EmitFunctionBodyStart - Targets can override this to emit stuff before
 /// the first basic block in the function.
 void CoffeeAsmPrinter::EmitFunctionBodyStart() {
+
   MCInstLowering.Initialize(Mang, &MF->getContext());
 
-  emitFrameDirective();
+  /*emitFrameDirective();
 
   bool EmitCPLoad = false;
 
@@ -229,7 +230,7 @@ void CoffeeAsmPrinter::EmitFunctionBodyStart() {
     for (SmallVector<MCInst, 4>::iterator I = MCInsts.begin();
          I != MCInsts.end(); ++I)
       OutStreamer.EmitInstruction(*I);
-  }
+  }*/
 }
 
 /// EmitFunctionBodyEnd - Targets can override this to emit stuff after
@@ -241,9 +242,9 @@ void CoffeeAsmPrinter::EmitFunctionBodyEnd() {
   if (OutStreamer.hasRawTextSupport()) {
    // if (CoffeeFI->getEmitNOAT())
    //   OutStreamer.EmitRawText(StringRef("\t.set\tat"));
-
-    OutStreamer.EmitRawText(StringRef("\t.set\tmacro"));
-    OutStreamer.EmitRawText(StringRef("\t.set\treorder"));
+//
+ //   OutStreamer.EmitRawText(StringRef("\t.set\tmacro"));
+ //   OutStreamer.EmitRawText(StringRef("\t.set\treorder"));
     OutStreamer.EmitRawText("\t.end\t" + Twine(CurrentFnSym->getName()));
   }
 }

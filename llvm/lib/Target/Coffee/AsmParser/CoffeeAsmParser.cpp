@@ -1574,9 +1574,15 @@ bool CoffeeAsmParser::ParseDirective(AsmToken DirectiveID) {
     return false;
   }
 
- /* if (DirectiveID.getString() == ".set") {
+  if (DirectiveID.getString() == ".code32") {
+    // ignore this directive for now
+    Parser.EatToEndOfStatement();
+    return false;
+  }
+
+  if (DirectiveID.getString() == ".set") {
     return parseDirectiveSet();
-  }*/
+  }
 
   if (DirectiveID.getString() == ".fmask") {
     // ignore this directive for now
