@@ -218,9 +218,9 @@ class EffectiveAddress<string instr_asm, RegisterClass RC, Operand Mem> :
 // Base class for indirect branch and return instruction classes.
 let isTerminator=1, isBarrier=1, hasDelaySlot = 1 in
 class JumpF3R<bits<6> op, RegisterClass RC, SDPatternOperator operator = null_frag>:
-  F3R<op, (outs), (ins RC:$rs), "jmpr\t$rs", [(operator RC:$rs)], IIBranch> {
-   let dreg = 0;
-   let sreg2 = 0;
+  F3R<op, (outs), (ins RC:$rt), "jmpr\t$rt", [(operator RC:$rt)], IIBranch> {
+   let rd = 0;
+   let rs = 0;
 }
 
 class MovF2R<bits<6> op>:
@@ -245,13 +245,13 @@ class RetBase<bits<6> op, RegisterClass RC>: JumpF3R<op, RC> {
 
 // SetCC
 class SetCC_R<bits<6> op, string instr_asm, RegisterClass RC>:
-  F3R<op, (outs CRRC:$rd), (ins RC:$rs, RC:$rt),
-     !strconcat(instr_asm, "\t$rd, $rs, $rt"),
-     [/*(set CRRC:$rd, (COFFEEcmp RC:$rs, RC:$rt))*/], IIAlu> {}
+  F3R<op, (outs CRRC:$rd), (ins RC:$rt, RC:$rs),
+     !strconcat(instr_asm, "\t$rd, $rt, $rs"),
+     [/*(set CRRC:$rd, (COFFEEcmp RC:$rt, RC:$rs))*/], IIAlu> {}
 
 class SetCC_I<bits<6> op, string instr_asm, Operand Od, RegisterClass RC>:
-  FI<op, (outs CRRC:$rt), (ins RC:$rs, Od:$imm16),
-     !strconcat(instr_asm, "\t$rt, $rs, $imm16"),
+  FI<op, (outs CRRC:$rt), (ins RC:$rs, Od:$imm15),
+     !strconcat(instr_asm, "\t$rt, $rs, $imm15"),
      [/*(set CRRC:$rd, (COFFEEcmp RC:$rs, imm:$rt))*/], IIAlu> {}
 
 
@@ -323,10 +323,10 @@ class LoadM<bits<6> op, string instr_asm, PatFrag OpNode, RegisterClass RC,
 
   let Inst{25} = 0b0;
 
-  let Inst{9-5} = rt;
+  let Inst{9-5} = addr{4-0};
 
   let Inst{24-10} = addr{19-5};
-  let Inst{4-0} = addr{4-0};
+  let Inst{4-0} = rt;
 }
 
 class StoreM<bits<6> op, string instr_asm, PatFrag OpNode, RegisterClass RC,
@@ -345,29 +345,34 @@ class StoreM<bits<6> op, string instr_asm, PatFrag OpNode, RegisterClass RC,
     let Inst{24-15} = addr{19-10};
     let Inst{9-5} = addr{9-5};
     let Inst{4-0} = addr{4-0};
+
+    let Inst{24-20} = addr{14-10};
+    let Inst{19-15} = addr{4-0};
+    let Inst{9-5} = addr{9-5};
+    let Inst{4-0} = addr{19-15};
 }
 
 
 // Arithmetic and logical instructions with 2 register operands.
 class ArithLogicI<bits<6> op, string instr_asm, SDNode OpNode,
                   Operand Od, PatLeaf imm_type, RegisterClass RC> :
-  FI<op, (outs RC:$rt), (ins RC:$rs, Od:$imm16),
-     !strconcat(instr_asm, "\t$rt,\t$rs,\t$imm16"),
-     [(set RC:$rt, (OpNode RC:$rs, imm_type:$imm16))], IIAlu> {
+  FI<op, (outs RC:$rt), (ins RC:$rs, Od:$imm15),
+     !strconcat(instr_asm, "\t$rt,\t$rs,\t$imm15"),
+     [(set RC:$rt, (OpNode RC:$rs, imm_type:$imm15))], IIAlu> {
   let isReMaterializable = 1;
 }
 
 class ArithOverflowI<bits<6> op, string instr_asm, SDNode OpNode,
                      Operand Od, PatLeaf imm_type, RegisterClass RC> :
-  FI<op, (outs RC:$rt), (ins RC:$rs, Od:$imm),
-     !strconcat(instr_asm, "\t$rt,\t$rs,\t$imm"), [], IIAlu>;
+  FI<op, (outs RC:$rt), (ins RC:$rs, Od:$imm15),
+     !strconcat(instr_asm, "\t$rt,\t$rs,\t$imm15"), [], IIAlu>;
 
 
 class ArithLogicR<bits<6> op, string instr_asm, SDNode OpNode,
                   InstrItinClass itin, RegisterClass RC, bit isComm = 0>:
-  F3R<op, (outs RC:$rd), (ins RC:$rs, RC:$rt),
-     !strconcat(instr_asm, "\t$rd,\t$rs,\t$rt"),
-     [(set RC:$rd, (OpNode RC:$rs, RC:$rt))], itin> {
+  F3R<op, (outs RC:$rd), (ins RC:$rt, RC:$rs),
+     !strconcat(instr_asm, "\t$rd,\t$rt,\t$rs"),
+     [(set RC:$rd, (OpNode RC:$rt, RC:$rs))], itin> {
   /*let shamt = 0;
   let isCommutable = isComm;
   let isReMaterializable = 1;*/
@@ -375,8 +380,8 @@ class ArithLogicR<bits<6> op, string instr_asm, SDNode OpNode,
 
 class ArithOverflowR<bits<6> op, string instr_asm,
                     InstrItinClass itin, RegisterClass RC, bit isComm = 0>:
-  F3R<op, (outs RC:$rd), (ins RC:$rs, RC:$rt),
-     !strconcat(instr_asm, "\t$rd,\t$rs,\t$rt"), [], itin> {
+  F3R<op, (outs RC:$rd), (ins RC:$rt, RC:$rs),
+     !strconcat(instr_asm, "\t$rd,\t$rt,\t$rs"), [], itin> {
  /* let shamt = 0;
   let isCommutable = isComm;*/
 }
@@ -419,12 +424,16 @@ let Constraints = "$rd = $rt";
 class shift_imm<bits<6> opcode, string instr_asm,
                        SDNode OpNode, PatFrag PF, Operand ImmOpnd,
                        RegisterClass RC>:
-  FI<opcode, (outs RC:$rd), (ins RC:$rt, ImmOpnd:$shamt),
-     !strconcat(instr_asm, "\t$rd,\t$rt,\t$shamt"),
-     [(set RC:$rd, (OpNode RC:$rt, PF:$shamt))], IIAlu> {
-bits<6> shamt;
-let imm{5-0} = shamt;
-let imm{8} = 0b0;
+  F<opcode, (outs RC:$rd), (ins RC:$rt, ImmOpnd:$imm6),
+     !strconcat(instr_asm, "\t$rd,\t$rt,\t$imm6"),
+     [(set RC:$rd, (OpNode RC:$rt, PF:$imm6))], IIAlu> {
+bits<6> imm6;
+bits<5> rt;
+bits<5> rd;
+let Inst{15-10} = imm6;
+let Inst{9-5} = rt;
+let Inst{4-0} = rd;
+let Inst{18} = 0b0;
 }
 
 // 32-bit shift instructions.
@@ -434,9 +443,9 @@ class shift_imm32<bits<6> opcode, string instr_asm,
 
 class shift_reg<bits<6> opcode, string instr_asm,
                        SDNode OpNode, RegisterClass RC>:
-  F3R<opcode, (outs RC:$rd), (ins GPRC:$rs, RC:$rt),
+  F3R<opcode, (outs RC:$rd), (ins RC:$rs, RC:$rt),
      !strconcat(instr_asm, "\t$rd,\t$rt,\t$rs"),
-     [(set RC:$rd, (OpNode RC:$rt, GPRC:$rs))], IIAlu> {
+     [(set RC:$rd, (OpNode RC:$rt, RC:$rs))], IIAlu> {
 
      let Inst{18} = 0b1; // indicator of regsiter operands instruction for shift
 }
@@ -496,8 +505,8 @@ class ConhF<bits<6> opcode>: F<opcode, (outs GPRC:$rd), (ins GPRC:$rt, GPRC:$rs)
 bits<5> rd;
 bits<5> rt;
 bits<5> rs;
-let Inst{14-10} = rs;
-let Inst{9-5} = rt;
+let Inst{14-10} = rt;
+let Inst{9-5} = rs;
 let Inst{4-0} = rd;
 }
 
@@ -627,7 +636,7 @@ def MULHI   : MulHiF<0b011101>;
 
 def RETI     : RetiF<0b010111>;
 
-def RETU     : RetuF<0b010111>;
+def RETU     : RetuF<0b011111>;
 def SCALL    : ScallF<0b111011>;
 
 def DI     : DiF<0b010101>;
@@ -697,10 +706,10 @@ class LoadAddress<string instr_asm, Operand MemOpnd, RegisterClass RC> :
                      !strconcat(instr_asm, "\t$rt,\t$addr"), []> ;
 def LoadAddr32Reg : LoadAddress<"ldra", address, GPRC>;
 
-class LoadAddressImm<string instr_asm, Operand Od, RegisterClass RC> :
-  CoffeeAsmPseudo<(outs RC:$rt), (ins Od:$imm32),
-                     !strconcat(instr_asm, "\t$rt,\t$imm32"), []> ;
-def LoadAddr32Imm : LoadAddressImm<"ldra", shamt, GPRC>;
+//class LoadAddressImm<string instr_asm, Operand Od, RegisterClass RC> :
+//  CoffeeAsmPseudo<(outs RC:$rt), (ins Od:$imm32),
+                     //!strconcat(instr_asm, "\t$rt,\t$imm32"), []> ;
+//def LoadAddr32Imm : LoadAddressImm<"ldra", shamt, GPRC>;
 
 
 def Pushr : CoffeeAsmPseudo<(outs), (ins GPRC:$rs), "push\t$rs", []> ;

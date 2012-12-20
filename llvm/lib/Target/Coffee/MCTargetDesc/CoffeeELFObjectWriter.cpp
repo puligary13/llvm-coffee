@@ -56,7 +56,7 @@ namespace {
 CoffeeELFObjectWriter::CoffeeELFObjectWriter(bool _is64Bit, uint8_t OSABI,
                                          bool _isN64, bool IsLittleEndian)
   : MCELFObjectTargetWriter(_is64Bit, OSABI, ELF::EM_COFFEE,
-                            /*HasRelocationAddend*/ (_isN64) ? true : false,
+                            true,
                             /*IsN64*/ _isN64) {}
 
 CoffeeELFObjectWriter::~CoffeeELFObjectWriter() {}

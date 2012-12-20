@@ -127,6 +127,8 @@ class CoffeeAsmParser : public MCTargetAsmParser {
   bool parseMemOffset(const MCExpr *&Res);
   bool parseRelocOperand(const MCExpr *&Res);
 
+  bool parseDirectiveWord(unsigned Size, SMLoc L);
+
   bool parseDirectiveSet();
 
   bool parseSetAtDirective();
@@ -374,7 +376,7 @@ public:
 bool CoffeeAsmParser::needsExpansion(MCInst &Inst) {
   switch(Inst.getOpcode()) {
     case Coffee::LoadImm32Reg:
-    case Coffee::LoadAddr32Imm:
+    //case Coffee::LoadAddr32Imm:
     case Coffee::Pushr:
     case Coffee::Popr:
     case Coffee::St:
@@ -392,8 +394,8 @@ void CoffeeAsmParser::expandInstruction(MCInst &Inst, SMLoc IDLoc,
      switch(Inst.getOpcode()) {
     case Coffee::LoadImm32Reg:
       return expandLoadImm(Inst, IDLoc, Instructions);
-    case Coffee::LoadAddr32Imm:
-      return expandLoadAddressImm(Inst,IDLoc,Instructions);
+    //case Coffee::LoadAddr32Imm:
+    //  return expandLoadAddressImm(Inst,IDLoc,Instructions);
 
      case Coffee::Pushr:
          return expandPushr(Inst, IDLoc, Instructions);
@@ -512,22 +514,22 @@ void CoffeeAsmParser::expandLoadImm(MCInst &Inst, SMLoc IDLoc,
     tmpInst.addOperand(MCOperand::CreateReg(RegOp.getReg()));
     tmpInst.addOperand(MCOperand::CreateImm(ImmValue));
     Instructions.push_back(tmpInst);
-  } else if ( ImmValue < 0 && ImmValue >= -32768) {
+  } /*else if ( ImmValue < 0 && ImmValue >= -32768) {
     tmpInst.setOpcode(Coffee::LLi); //TODO:no ADDiu64 in td files?
     tmpInst.addOperand(MCOperand::CreateReg(RegOp.getReg()));
     tmpInst.addOperand(MCOperand::CreateImm(ImmValue));
     Instructions.push_back(tmpInst);
-  } else {
+  } */else {
     // for any other value of j that is representable as a 32-bit integer.
 
-    tmpInst.setOpcode(Coffee::LUi);
-    tmpInst.addOperand(MCOperand::CreateReg(RegOp.getReg()));
-    tmpInst.addOperand(MCOperand::CreateImm((ImmValue & 0xffff0000) >> 16));
-    Instructions.push_back(tmpInst);
-    tmpInst.clear();
     tmpInst.setOpcode(Coffee::LLi);
     tmpInst.addOperand(MCOperand::CreateReg(RegOp.getReg()));
     tmpInst.addOperand(MCOperand::CreateImm(ImmValue & 0xffff));
+    Instructions.push_back(tmpInst);
+    tmpInst.clear();
+    tmpInst.setOpcode(Coffee::LUi);
+    tmpInst.addOperand(MCOperand::CreateReg(RegOp.getReg()));
+    tmpInst.addOperand(MCOperand::CreateImm((ImmValue & 0xffff0000) >> 16));
     tmpInst.setLoc(IDLoc);
     Instructions.push_back(tmpInst);
   }
@@ -549,15 +551,17 @@ void CoffeeAsmParser::expandLoadAddressReg(MCInst &Inst, SMLoc IDLoc,
 
       const MCSymbolRefExpr* LoExpr = MCSymbolRefExpr::Create(&SymbolExpr->getSymbol(), MCSymbolRefExpr::VK_Coffee_ABS_LO, getContext());
 
-      tmpInst.setOpcode(Coffee::LUi);
-      tmpInst.addOperand(MCOperand::CreateReg(RegOp.getReg()));
-      tmpInst.addOperand(MCOperand::CreateExpr(HIExpr));
-      Instructions.push_back(tmpInst);
-      tmpInst.clear();
-
+     tmpInst.setLoc(IDLoc);
       tmpInst.setOpcode(Coffee::LLi);
       tmpInst.addOperand(MCOperand::CreateReg(RegOp.getReg()));
       tmpInst.addOperand(MCOperand::CreateExpr(LoExpr));
+      Instructions.push_back(tmpInst);
+      tmpInst.clear();
+
+      tmpInst.setOpcode(Coffee::LUi);
+      tmpInst.addOperand(MCOperand::CreateReg(RegOp.getReg()));
+      tmpInst.addOperand(MCOperand::CreateExpr(HIExpr));
+      tmpInst.setLoc(IDLoc);
       Instructions.push_back(tmpInst);
 
 }
@@ -572,6 +576,7 @@ void CoffeeAsmParser::expandLoadAddressImm(MCInst &Inst, SMLoc IDLoc,
   int ImmValue = ImmOp.getImm();
   // upper 16 bits of the integer in this range are already zero so
   // we can lli for that.
+  tmpInst.setLoc(IDLoc);
   if ( 0 <= ImmValue && ImmValue <= 65535) {
 
     tmpInst.setOpcode(Coffee::LLi);
@@ -580,15 +585,18 @@ void CoffeeAsmParser::expandLoadAddressImm(MCInst &Inst, SMLoc IDLoc,
     Instructions.push_back(tmpInst);
   } else {
 
-    tmpInst.setOpcode(Coffee::LUi);
-    tmpInst.addOperand(MCOperand::CreateReg(RegOp.getReg()));
-    tmpInst.addOperand(MCOperand::CreateImm((ImmValue & 0xffff0000) >> 16));
-    Instructions.push_back(tmpInst);
-    tmpInst.clear();
-    tmpInst.setOpcode(Coffee::LLi);
-    tmpInst.addOperand(MCOperand::CreateReg(RegOp.getReg()));
-    tmpInst.addOperand(MCOperand::CreateImm(ImmValue & 0xffff));
-    Instructions.push_back(tmpInst);
+      tmpInst.setOpcode(Coffee::LLi);
+      tmpInst.addOperand(MCOperand::CreateReg(RegOp.getReg()));
+      tmpInst.addOperand(MCOperand::CreateImm(ImmValue & 0xffff));
+      Instructions.push_back(tmpInst);
+
+      tmpInst.clear();
+
+      tmpInst.setOpcode(Coffee::LUi);
+      tmpInst.addOperand(MCOperand::CreateReg(RegOp.getReg()));
+      tmpInst.addOperand(MCOperand::CreateImm((ImmValue & 0xffff0000) >> 16));
+      tmpInst.setLoc(IDLoc);
+      Instructions.push_back(tmpInst);
   }
 }
 
@@ -1530,6 +1538,29 @@ bool CoffeeAsmParser::parseDirectiveSet() {
   return true;
 }
 
+bool CoffeeAsmParser::parseDirectiveWord(unsigned Size, SMLoc L) {
+  if (getLexer().isNot(AsmToken::EndOfStatement)) {
+    for (;;) {
+      const MCExpr *Value;
+      if (getParser().ParseExpression(Value))
+        return true;
+
+      getParser().getStreamer().EmitValue(Value, Size, 0/*addrspace*/);
+
+      if (getLexer().is(AsmToken::EndOfStatement))
+        break;
+
+      // FIXME: Improve diagnostic.
+      if (getLexer().isNot(AsmToken::Comma))
+        return Error(L, "unexpected token in directive");
+      Parser.Lex();
+    }
+  }
+
+  Parser.Lex();
+  return false;
+}
+
 bool CoffeeAsmParser::ParseDirective(AsmToken DirectiveID) {
 
   if (DirectiveID.getString() == ".ent") {
@@ -1539,9 +1570,7 @@ bool CoffeeAsmParser::ParseDirective(AsmToken DirectiveID) {
   }
 
   if (DirectiveID.getString() == ".word") {
-    // ignore this directive for now
-    Parser.Lex();
-    return false;
+     return parseDirectiveWord(4, DirectiveID.getLoc());;
   }
 
   if (DirectiveID.getString() == ".proc") {

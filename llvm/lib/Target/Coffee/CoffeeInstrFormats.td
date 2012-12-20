@@ -78,37 +78,45 @@ class F2R<bits<6> op, dag outs, dag ins, string asmstr,
          list<dag> pattern, InstrItinClass itin>:
       InstCoffee<outs, ins, asmstr, pattern, itin, FrmR>
 {
-  bits<5> sreg1;
-  bits<5> dreg;
+  bits<5> rt;
+  bits<5> rs;
 
   let Opcode = op;
 
   let Inst{25} = 0b0; // disable condition
-  let Inst{9-5} = sreg1;
-  let Inst{4-0}  = dreg;
+  let Inst{9-5} = rs;
+  let Inst{4-0}  = rt;
 }
 
 // register instruction format with 3 operands
 class F3R<bits<6> op, dag outs, dag ins, string asmstr,
          list<dag> pattern, InstrItinClass itin>:
-      F2R<op, outs, ins, asmstr, pattern, itin>
+      InstCoffee<outs, ins, asmstr, pattern, itin, FrmR>
 {
-  bits<5> sreg2;
-  let Inst{14-10} = sreg2;
+  bits<5> rd;
+  bits<5> rt;
+  bits<5> rs;
+
+  let Opcode = op;
+
+  let Inst{25} = 0b0; // disable condition
+  let Inst{4-0}  = rd;
+  let Inst{9-5} = rt;
+  let Inst{14-10} = rs;
 }
 
 
 class FI<bits<6> op, dag outs, dag ins, string asmstr, list<dag> pattern,
          InstrItinClass itin>: InstCoffee<outs, ins, asmstr, pattern, itin, FrmI>
 {
-  bits<15>  imm;
+  bits<15>  imm15;
   bits<5> rs;
   bits<5> rt;
 
   let Opcode = op;
 
   let Inst{25} = 0b0; // disable condition
-  let Inst{24-10} = imm;
+  let Inst{24-10} = imm15;
   let Inst{9-5} = rs;
   let Inst{4-0}  = rt;
 }
@@ -122,8 +130,8 @@ InstrItinClass itin>: InstCoffee<outs, ins, asmstr, pattern, itin, FrmI>
   let Opcode = op;
   let Inst{24-22} = rd;
   let Inst{9-5} = rt;
-  let Inst{21-10} = imm17{16-5};
-  let Inst{4-0} = imm17{4-0};
+  let Inst{21-10} = imm17{11-0};
+  let Inst{4-0} = imm17{16-12};
 }
 
 class CMPR<bits<6> op, dag outs, dag ins, string asmstr, list<dag> pattern,
