@@ -87,7 +87,7 @@ BitVector CoffeeRegisterInfo::getReservedRegs(const MachineFunction &MF) const {
 
     // Reserve GP if small section is used.
     if (Subtarget.useSmallSection()) {
-      Reserved.set(Coffee::GP);
+      //Reserved.set(Coffee::GP);
     }
 
     return Reserved;

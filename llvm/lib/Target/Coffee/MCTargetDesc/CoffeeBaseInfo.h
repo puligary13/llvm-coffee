@@ -163,25 +163,25 @@ inline static unsigned getCoffeeRegisterNumbering(unsigned RegEnum)
     return 19;
   case Coffee::S10:
     return 20;
-  case Coffee::S11:
-    return 21;
   case Coffee::A0:
-    return 22;
+    return 21;
   case Coffee::A1:
-    return 23;
+    return 22;
   case Coffee::A2:
-    return 24;
+    return 23;
   case Coffee::A3:
-    return 25;
+    return 24;
   case Coffee::V0:
-    return 26;
+    return 25;
   case Coffee::V1:
-    return 27;
-  case Coffee::GP:
-    return 28;
+    return 26;
   case Coffee::SP:
-    return 29;
+    return 27;
   case Coffee::FP:
+    return 28;
+  case Coffee::PSR:
+    return 29;
+  case Coffee::SPSR:
     return 30;
   case Coffee::LR:
     return 31;

@@ -27,4 +27,4 @@ def RetCC_Coffee : CallingConv<[
 //def CSR_COFFEE : CalleeSavedRegs<(add LR, R11, R10, R9, R8, R7, R6, R5, R4)>;
 
 def CSR_COFFEE : CalleeSavedRegs<(add LR, FP,
-                                  (sequence "S%u", 11, 0))>;
+                                  (sequence "S%u", 10, 0))>;
