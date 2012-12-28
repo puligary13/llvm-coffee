@@ -26,6 +26,7 @@ namespace llvm {
 class CoffeeInstrInfo : public CoffeeGenInstrInfo {
   CoffeeTargetMachine &TM;
   const CoffeeRegisterInfo RI;
+  unsigned UncondBrOpc;
 
 public:
   explicit CoffeeInstrInfo(CoffeeTargetMachine &TM);
@@ -35,6 +36,15 @@ public:
   virtual void insertNoop(MachineBasicBlock &MBB,
                           MachineBasicBlock::iterator MI) const;
 
+  unsigned GetAnalyzableBrOpc(unsigned Opc) const;
+
+  void AnalyzeCondBr(const MachineInstr *Inst, unsigned Opc,
+                                    MachineBasicBlock *&BB,
+                                    SmallVectorImpl<MachineOperand> &Cond) const;
+
+  void BuildCondBr(MachineBasicBlock &MBB,
+                                  MachineBasicBlock *TBB, DebugLoc DL,
+                                  const SmallVectorImpl<MachineOperand>& Cond) const;
 
   virtual bool AnalyzeBranch(MachineBasicBlock &MBB, MachineBasicBlock *&TBB,
                              MachineBasicBlock *&FBB,
