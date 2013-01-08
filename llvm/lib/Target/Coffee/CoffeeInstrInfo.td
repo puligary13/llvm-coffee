@@ -12,6 +12,11 @@
 //
 //===----------------------------------------------------------------------===//
 
+class NeverHasSideEffects {
+  bit neverHasSideEffects = 1;
+}
+
+
 include "CoffeeInstrFormats.td"
 
 
@@ -158,6 +163,7 @@ def uimm15      : Operand<i32>;
 def imm5      : Operand<i32>;
 def imm6      : Operand<i32>;
 def imm2      : Operand<i32>;
+def imm1      : Operand<i32>;
 
 def simm16      : Operand<i32>;
 def uimm16      : Operand<i32>;
@@ -365,7 +371,8 @@ class ArithLogicI<bits<6> op, string instr_asm, SDNode OpNode,
 class ArithOverflowI<bits<6> op, string instr_asm, SDNode OpNode,
                      Operand Od, PatLeaf imm_type, RegisterClass RC> :
   FI<op, (outs RC:$rt), (ins RC:$rs, Od:$imm15),
-     !strconcat(instr_asm, "\t$rt,\t$rs,\t$imm15"), [], IIAlu>;
+     !strconcat(instr_asm, "\t$rt,\t$rs,\t$imm15"),
+     [(set RC:$rt, (OpNode RC:$rs, imm_type:$imm15))], IIAlu>;
 
 
 class ArithLogicR<bits<6> op, string instr_asm, SDNode OpNode,
@@ -378,10 +385,11 @@ class ArithLogicR<bits<6> op, string instr_asm, SDNode OpNode,
   let isReMaterializable = 1;*/
 }
 
-class ArithOverflowR<bits<6> op, string instr_asm,
+class ArithOverflowR<bits<6> op, string instr_asm, SDNode OpNode,
                     InstrItinClass itin, RegisterClass RC, bit isComm = 0>:
   F3R<op, (outs RC:$rd), (ins RC:$rt, RC:$rs),
-     !strconcat(instr_asm, "\t$rd,\t$rt,\t$rs"), [], itin> {
+     !strconcat(instr_asm, "\t$rd,\t$rt,\t$rs"),
+     [(set RC:$rd, (OpNode RC:$rt, RC:$rs))], itin> {
  /* let shamt = 0;
   let isCommutable = isComm;*/
 }
@@ -529,6 +537,27 @@ let Inst{9-5} = rt;
 let Inst{4-0} = rd;
 }
 
+class ExhF<bits<6> opcode>: F<opcode, (outs GPRC:$rd), (ins GPRC:$rt, imm1:$imm), "exh\t$rd,\t$rt,\t$imm", [], IIAlu> {
+bits<5> rd;
+bits<5> rt;
+bits<1> imm;
+
+let Inst{10} = imm;
+let Inst{9-5} = rt;
+let Inst{4-0} = rd;
+}
+
+
+class SextiF<bits<6> opcode>: F<opcode, (outs GPRC:$rd), (ins GPRC:$rt, imm5:$imm), "sexti\t$rd,\t$rt,\t$imm", [], IIAlu> {
+bits<5> rd;
+bits<5> rt;
+bits<5> imm;
+
+let Inst{14-10} = imm;
+let Inst{9-5} = rt;
+let Inst{4-0} = rd;
+}
+
 // Jump and Link (Call)
 let isCall=1, hasDelaySlot=1, Defs = [LR] in {
   class JumpLink<bits<6> op, string instr_asm>:
@@ -566,8 +595,8 @@ def LLiu    : LoadImm<0b111110, "lli", GPRC, uimm16_load>;
 // Arithmetic Instruction (reg)
 def ADDu    : ArithLogicR<0b000000, "addu", add, IIAlu, GPRC>;
 def SUBu    : ArithLogicR<0b010001, "subu", sub, IIAlu, GPRC>;
-def ADD     : ArithOverflowR<0b000001, "add", IIAlu, GPRC>;
-def SUB     : ArithOverflowR<0b010000, "sub", IIAlu, GPRC>;
+def ADD     : ArithOverflowR<0b000001, "add", add, IIAlu, GPRC>;
+def SUB     : ArithOverflowR<0b010000, "sub", sub, IIAlu, GPRC>;
 
 def AND     : ArithLogicR<0b000010, "and", and, IIAlu, GPRC>;
 def OR      : ArithLogicR<0b001011, "or",  or, IIAlu, GPRC>;
@@ -594,15 +623,16 @@ def MULTI   : ArithLogicI<0b101110, "muli", MUL, simm16, immSExt16, GPRC>;
 /// Load and Store Instructions
 ///  aligned
 
-// these are pesudo instruction
-def LB      : LoadM<0b110000, "ldb",  sextloadi8, GPRC, mem_load, 0>;
+// we may enable LB, LH, SB, SH when hardware supports it
+// for now, truncate store and extend load are handled as pattern below
+//def LB      : LoadM<0b110000, "ldb",  sextloadi8, GPRC, mem_load, 0>;
 //def LBu     : LoadM<0b110000, "ldb", zextloadi8,  GPRC, mem_load, 0>;
-def LH      : LoadM<0b110001, "ldh",  sextloadi16_a,  GPRC, mem_load, 0>;
-//def LHu     : LoadM<0b110001, "ldh", zextloadi16_a,  GPRC, mem_load, 0>;
-def LW      : LoadM<0b110010, "ldw",  load_a,  GPRC, mem_load, 0>;
-def SB      : StoreM<0b000011, "stb", truncstorei8,  GPRC, mem_store, 0>;
-def SH      : StoreM<0b000100, "sth", truncstorei16_a,  GPRC, mem_store, 0>;
-def SW      : StoreM<0b110100, "stw", store_a,  GPRC, mem_store, 0>;
+//def LH      : LoadM<0b110001, "ldh",  sextloadi16,  GPRC, mem_load, 0>;
+//def LHu     : LoadM<0b110001, "ldh", zextloadi16,  GPRC, mem_load, 0>;
+def LW      : LoadM<0b110010, "ldw",  load,  GPRC, mem_load, 0>;
+//def SB      : StoreM<0b000011, "stb", truncstorei8,  GPRC, mem_store, 0>;
+//def SH      : StoreM<0b000100, "sth", truncstorei16,  GPRC, mem_store, 0>;
+def SW      : StoreM<0b110100, "stw", store,  GPRC, mem_store, 0>;
 
 // condition
 def JMP       : JumpFJ<0b111000, "jmp">;
@@ -618,7 +648,6 @@ def BLT     :  CBranch<0b100101, "blt", setlt>;
 def BNE     :  CBranch<0b100110, "bne", setne>;
 
 def RET     :  RetBase<0b011011, GPRC>;
-
 
 
 //def NOP     :  SI<0b111010, "nop">;
@@ -653,6 +682,9 @@ def CONH   : ConhF<0b000100>;
 def MOVTC   : MovtcF<0b110110>;
 
 def EXB    : ExbF<0b110000>;
+def EXH    : ExhF<0b110001>;
+
+def SEXTI  : SextiF<0b101011>;
 
 
 // pseudo instruction definition
@@ -734,14 +766,26 @@ def : Pat<(i32 imm:$val),
 def : Pat<(i32 imm:$val),
           (LUri (LLiu (LO16 imm:$val)), (HI16 imm:$val))>;
 
+//load & store
+def : Pat<(i32 (extloadi1  addr:$src)), (LW addr:$src)>;
+def : Pat<(i32 (extloadi8  addr:$src)), (LW addr:$src)>;
+def : Pat<(i32 (extloadi16 addr:$src)), (LW addr:$src)>;
+
+def : Pat<(i32 (zextloadi1  addr:$src)), (LW addr:$src)>;
+def : Pat<(i32 (zextloadi8  addr:$src)), (LW addr:$src)>;
+def : Pat<(i32 (zextloadi16 addr:$src)), (LW addr:$src)>;
+
+def : Pat<(i32 (sextloadi1  addr:$src)), (SEXTI (LW addr:$src), 7)>;
+def : Pat<(i32 (sextloadi8  addr:$src)), (SEXTI (LW addr:$src), 7)>;
+def : Pat<(i32 (sextloadi16 addr:$src)), (SEXTI (LW addr:$src), 15)>;
+
+def : Pat<(truncstorei8 GPRC:$rt, addr:$src), (SW (EXB GPRC:$rt, 0), addr:$src)>;
+def : Pat<(truncstorei16 GPRC:$rt, addr:$src), (SW (EXH GPRC:$rt, 0), addr:$src)>;
 
 // select COFFEEDynAlloc
 def : Pat<(COFFEEDynAlloc addr:$f), (DynAlloc addr:$f)>;
 
 // immediates definition
-def : Pat<(i32 (extloadi1  addr:$src)), (LB addr:$src)>;
-def : Pat<(i32 (extloadi8  addr:$src)), (LB addr:$src)>;
-def : Pat<(i32 (extloadi16_a addr:$src)), (LH addr:$src)>;
 
 // global address
 def : Pat<(i32 tglobaladdr:$val),
@@ -751,10 +795,12 @@ def : Pat<(i32 tglobaladdr:$val),
 def : Pat<(COFFEELo tglobaladdr:$in), (LLiu tglobaladdr:$in)>;
 def : Pat<(COFFEELo tblockaddress:$in), (LLiu tblockaddress:$in)>;
 def : Pat<(COFFEELo tjumptable:$in), (LLiu tjumptable:$in)>;
+def : Pat<(COFFEELo tconstpool:$in), (LLiu tconstpool:$in)>;
 
 def : Pat<(COFFEEHi GPRC:$src, tglobaladdr:$in), (LUri GPRC:$src, tglobaladdr:$in)>;
 def : Pat<(COFFEEHi GPRC:$src, tblockaddress:$in), (LUri GPRC:$src, tblockaddress:$in)>;
 def : Pat<(COFFEEHi GPRC:$src, tjumptable:$in), (LUri GPRC:$src, tjumptable:$in)>;
+def : Pat<(COFFEEHi GPRC:$src, tconstpool:$in), (LUri GPRC:$src, tconstpool:$in)>;
 
 
 // Call
@@ -814,6 +860,10 @@ def : Pat<(brcond (i32 (setlt GPRC:$lhs, immSExt16:$rhs)), bb:$dst),
 def : Pat<(brcond GPRC:$cond, bb:$dst),
           (BNE (CMPri GPRC:$cond, 0), bb:$dst)>;
 
+//===----------------------------------------------------------------------===//
+// Floating Point Support
+//===----------------------------------------------------------------------
 
+include "CoffeeInstrFPU.td"
 
 

@@ -19,7 +19,9 @@
 // Return-value convention for Coffee
 // the calling convention is defnined in coffeeisellowering.cpp
 def RetCC_Coffee : CallingConv<[
-  CCIfType<[i32], CCAssignToReg<[V0, V1, A0, A1]>>
+
+  CCIfType<[i32], CCAssignToReg<[V0, V1, A0, A1]>>,
+  CCIfType<[f32], CCAssignToReg<[V0, V1, A0, A1]>>
 ]>;
 
 

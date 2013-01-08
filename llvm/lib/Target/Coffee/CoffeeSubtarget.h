@@ -101,6 +101,14 @@ protected:
   // IsAndroid -- target is android
   bool IsAndroid;
 
+  bool IsCoProcessor0;
+
+  bool IsCoProcessor1;
+
+  bool IsCoProcessor2;
+
+  bool IsCoProcessor3;
+
   InstrItineraryData InstrItins;
 
 public:
@@ -124,6 +132,11 @@ public:
 
   bool hasCoffee32() const { return CoffeeArchVersion >= Coffee32; }
 
+
+  bool isCOP0() const { return IsCoProcessor0; }
+  bool isCOP1() const { return IsCoProcessor1; }
+  bool isCOP2() const { return IsCoProcessor2; }
+  bool isCOP3() const { return IsCoProcessor3; }
 
   bool isLittle() const { return IsLittle; }
   bool isFP64bit() const { return IsFP64bit; }

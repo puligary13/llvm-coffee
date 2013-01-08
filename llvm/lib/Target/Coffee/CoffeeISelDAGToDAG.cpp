@@ -41,10 +41,14 @@ class CoffeeDAGToDAGISel : public SelectionDAGISel {
     const CoffeeTargetMachine &TM;
     const CoffeeTargetLowering &CoffeeLowering;
     unsigned GlobalBaseReg;
+
+    const CoffeeSubtarget &Subtarget; // this subtarget is used in td files
+
 public:
     explicit CoffeeDAGToDAGISel(CoffeeTargetMachine &tm)
         : SelectionDAGISel(tm), TM(tm),
-          CoffeeLowering(*TM.getTargetLowering()) {}
+          CoffeeLowering(*TM.getTargetLowering()),
+          Subtarget(tm.getSubtarget<CoffeeSubtarget>()){}
     virtual SDNode *Select(SDNode *N);
 
     //Complex Pattern selectors
@@ -155,7 +159,7 @@ SDNode* CoffeeDAGToDAGISel::Select(SDNode *N) {
     DebugLoc dl = N->getDebugLoc();
 
     if (N->isMachineOpcode())
-      return NULL;   // Already selected.
+        return NULL;   // Already selected.
 
     EVT NodeTy = N->getValueType(0);
 
@@ -163,8 +167,6 @@ SDNode* CoffeeDAGToDAGISel::Select(SDNode *N) {
     default: break;
 
     case COFFEEISD::BRCOND: {
-
-
         // Pattern: (ARMbrcond:void (bb:Other):$dst, (imm:i32):$cc)
         // Emits: (Bcc:void (bb:Other):$dst, (imm:i32):$cc)
         // Pattern complexity = 6  cost = 1  size = 0
@@ -186,7 +188,6 @@ SDNode* CoffeeDAGToDAGISel::Select(SDNode *N) {
         assert(N2.getOpcode() == ISD::Constant);
         //assert(N3.getOpcode() == ISD::Register);
 
-
         ISD::CondCode cc = (ISD::CondCode)cast<ConstantSDNode>(N2)->getZExtValue();
 
         unsigned Opc = 0;
@@ -195,66 +196,66 @@ SDNode* CoffeeDAGToDAGISel::Select(SDNode *N) {
             llvm_unreachable("coffee:: unexpected condition code");
             break;
         case ISD::SETEQ:
-            case ISD::SETUEQ:
-             case ISD::SETOEQ:
-               Opc = Coffee::BEQ;
-               break;
+        case ISD::SETUEQ:
+        case ISD::SETOEQ:
+            Opc = Coffee::BEQ;
+            break;
         case ISD::SETGT:
-             case ISD::SETUGT:
-             case ISD::SETOGT:
-               Opc = Coffee::BGT;
-               break;
+        case ISD::SETUGT:
+        case ISD::SETOGT:
+            Opc = Coffee::BGT;
+            break;
         case ISD::SETGE:
-            case ISD::SETUGE:
-            case ISD::SETOGE:
-               Opc = Coffee::BEGT;
-               break;
+        case ISD::SETUGE:
+        case ISD::SETOGE:
+            Opc = Coffee::BEGT;
+            break;
         case ISD::SETLT:
-             case ISD::SETULT:
-             case ISD::SETOLT:
-               Opc = Coffee::BLT;
-               break;
+        case ISD::SETULT:
+        case ISD::SETOLT:
+            Opc = Coffee::BLT;
+            break;
         case ISD::SETLE:
-            case ISD::SETULE:
-            case ISD::SETOLE:
-               Opc = Coffee::BELT;
-               break;
+        case ISD::SETULE:
+        case ISD::SETOLE:
+            Opc = Coffee::BELT;
+            break;
         case ISD::SETNE:
-            case ISD::SETUNE:
-            case ISD::SETONE:
-               Opc = Coffee::BNE;
-               break;
+        case ISD::SETUNE:
+        case ISD::SETONE:
+            Opc = Coffee::BNE;
+            break;
 
         }
-
 
         SDValue Ops[] = { N3, N1, Chain, InFlag };
         SDNode *ResNode = CurDAG->getMachineNode(Opc, dl, MVT::Other,
                                                  MVT::Glue, Ops, 4);
         Chain = SDValue(ResNode, 0);
         if (N->getNumValues() == 2) {
-           int test = 1;
+            int test = 1;
         }
         ReplaceUses(SDValue(N, 0),
                     SDValue(Chain.getNode(), Chain.getResNo()));
         return NULL;
 
     }
-
+        break;
         // guoqing: we don't do anything to ISD::MUL as the muls muli instruction
         // will put the lo to destination register automatically
 
         // guoqing: these are meant for handling hi part
-        case ISD::MULHS:
-        case ISD::MULHU: {
-          if (NodeTy == MVT::i32)
+    case ISD::MULHS:
+    case ISD::MULHU: {
+        if (NodeTy == MVT::i32)
             return SelectMULT(N, dl);
-          else
-              llvm_unreachable("coffee: nodetype for mulhs is not i32");
+        else
+            llvm_unreachable("coffee: nodetype for mulhs is not i32");
 
 
-        }
-}
+    }
+        break;
+    }
 
     return SelectCode(N);
 }

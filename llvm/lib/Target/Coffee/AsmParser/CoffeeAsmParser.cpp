@@ -733,35 +733,12 @@ int CoffeeAsmParser::matchRegisterName(StringRef Name) {
             .Case("c6",  Coffee::CR6)
             .Case("cr7",  Coffee::CR7)
             .Case("c7",  Coffee::CR7)
+
             .Default(-1);
 
 
     if (CC != -1)
         return CC;
-
-    if (Name[0] == 'f') {
-        // we don't have floating point
-        /*StringRef NumString = Name.substr(1);
-    unsigned IntVal;
-    if( NumString.getAsInteger(10, IntVal))
-      return -1; // not integer
-    if (IntVal > 31)
-      return -1;
-
-    FpFormatTy Format = getFpFormat();
-
-    if (Format == FP_FORMAT_S || Format == FP_FORMAT_W)
-      return getReg(Coffee::FGR32RegClassID, IntVal);
-    if (Format == FP_FORMAT_D) {
-      if(isFP64()) {
-        return getReg(Coffee::FGR64RegClassID, IntVal);
-      }
-      // only even numbers available as register pairs
-      if (( IntVal > 31) || (IntVal%2 !=  0))
-        return -1;
-      return getReg(Coffee::AFGR64RegClassID, IntVal/2);
-    }*/
-    }
 
     return -1;
 }

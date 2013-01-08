@@ -25,10 +25,9 @@ class CoffeeFrameLowering: public TargetFrameLowering {
 public:
     CoffeeFrameLowering()
 
-        : TargetFrameLowering(TargetFrameLowering::StackGrowsDown, 8, 0)
+        : TargetFrameLowering(TargetFrameLowering::StackGrowsDown, 4, 0)
     {
-        // guoqing: let's use 8 bytes for stack alignment for now, same as mips
-        // need to double check this
+        // currently, we don't have type size bigger than 4 bytes.
     }
 
 

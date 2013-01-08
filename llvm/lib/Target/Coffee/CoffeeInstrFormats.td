@@ -57,12 +57,6 @@ class InstCoffee<dag outs, dag ins, string asmstr, list<dag> pattern,
   let TSFlags{3-0}   = FormBits;
 }
 
-
-class FFI<bits<6> op, dag outs, dag ins, string asmstr, list<dag> pattern>:
-          InstCoffee<outs, ins, asmstr, pattern, NoItinerary, FrmFI>
-{
- }
-
 // Instruction without operands
 class F<bits<6> op, dag outs, dag ins, string asmstr,
          list<dag> pattern, InstrItinClass itin>:
@@ -183,6 +177,84 @@ class CoffeeAsmPseudo<dag outs, dag ins, string asmstr, list<dag> pattern>:
       InstCoffee<outs, ins, asmstr, pattern, IIPseudo, Pseudo> {
   let isPseudo = 1;
 }
+
+//////////////////////////////
+// floating point format    //
+//////////////////////////////
+
+class FFI<bits<6> op, dag outs, dag ins, string asmstr, list<dag> pattern> :
+  InstCoffee<outs, ins, asmstr, pattern, NoItinerary, FrmFI>
+{
+}
+
+
+// floating point instruction with register
+class FFR_C<bits<6> op, dag outs, dag ins, string asmstr, list<dag> pattern> :
+  InstCoffee<outs, ins, asmstr, pattern, NoItinerary, FrmFR>
+{
+  // opcode for coffee cop instruction
+  let Opcode = 0b111100;
+  let Inst{21} = 0b0; //single precision only
+  let Inst{5-0}   = op; //opcode for milk coprocessor
+}
+
+// FP unary instruction without patterns
+class FFR1_C<bits<6> op, string opstr, bits<2> co, string copro,
+           RegisterClass DstRC, RegisterClass SrcRC> :
+  FFR_C<op, (outs DstRC:$fd), (ins SrcRC:$fs),
+      !strconcat(opstr, copro, "\t$fd,\t$fs"), []> {
+      bits<5> fd;
+      bits<5> fs;
+
+      let Inst{25-24} = co;
+      let Inst{15-11} = fs;
+      let Inst{10-6} = fd;
+}
+
+// FP unary instruction with patterns
+class FFR1P_C<bits<6> op, string opstr, bits<2> co,string copro,
+            RegisterClass DstRC, RegisterClass SrcRC, SDNode OpNode> :
+  FFR_C<op, (outs DstRC:$fd), (ins SrcRC:$fs),
+      !strconcat(opstr, copro, "\t$fd,\t$fs"),
+      [(set DstRC:$fd, (OpNode SrcRC:$fs))]> {
+      bits<5> fd;
+      bits<5> fs;
+
+      let Inst{25-24} = co;
+      let Inst{15-11} = fs;
+      let Inst{10-6} = fd;
+}
+
+class FFR2P_C<bits<6> op, string opstr, bits<2> co,
+            string copro, RegisterClass RC, SDNode OpNode> :
+  FFR_C<op, (outs RC:$fd), (ins RC:$fs, RC:$ft),
+      !strconcat(opstr, copro, "\t$fd,\t$fs,\t$ft"),
+      [(set RC:$fd, (OpNode RC:$fs, RC:$ft))]> {
+      bits<5> fd;
+      bits<5> ft;
+      bits<5> fs;
+
+      let Inst{25-24} = co;
+      let Inst{20-16} = ft;
+      let Inst{15-11} = fs;
+      let Inst{10-6} = fd;
+}
+
+class FFR2P_CMP_C<bits<6> op, string opstr, bits<2> co,
+            string copro, RegisterClass RC, SDNode OpNode> :
+  FFR_C<op, (outs CRRC:$fd), (ins RC:$fs, RC:$ft),
+      !strconcat(opstr, copro, "\t$fd,\t$fs,\t$ft"),
+      [(set CRRC:$fd, (OpNode RC:$fs, RC:$ft))]> {
+      bits<5> fd;
+      bits<5> ft;
+      bits<5> fs;
+
+      let Inst{25-24} = co;
+      let Inst{20-16} = ft;
+      let Inst{15-11} = fs;
+      let Inst{10-6} = fd;
+}
+
 
 ////////////////////////////////////////////////////////////////////////////
 // cex is set to 1

@@ -34,6 +34,7 @@ enum NodeType {
 
     BRCOND,
     CMP,
+    FPCMP,
     Hi,
     Lo,
     DynAlloc,
@@ -141,6 +142,8 @@ private:
       llvm::CCAssignFn *FixedFn, *VarFn;
     };
 
+    SDValue LowerConstantPool(SDValue Op, SelectionDAG &DAG) const;
+    SDValue LowerBITCAST(SDValue Op, SelectionDAG &DAG) const;
     SDValue LowerADD(SDValue Op, SelectionDAG &DAG) const;
     SDValue LowerDYNAMIC_STACKALLOC(SDValue Op, SelectionDAG &DAG) const;
     SDValue LowerJumpTable(SDValue Op, SelectionDAG &DAG) const;

@@ -32,7 +32,9 @@ CoffeeSubtarget::CoffeeSubtarget(const std::string &TT, const std::string &CPU,
   IsSingleFloat(false), IsFP64bit(false), IsGP64bit(false), HasVFPU(false),
   IsLinux(true), HasSEInReg(false), HasCondMov(false), HasMulDivAdd(false),
   HasMinMax(false), HasSwap(false), HasBitCount(false), HasFPIdx(false),
-  InCoffee16Mode(false), HasDSP(false), HasDSPR2(false), IsAndroid(false)
+  InCoffee16Mode(false), HasDSP(false), HasDSPR2(false), IsAndroid(false),
+  IsCoProcessor0(false), IsCoProcessor1(true), IsCoProcessor2(false),
+  IsCoProcessor3(false)
 {
   std::string CPUName = CPU;
   if (CPUName.empty())
