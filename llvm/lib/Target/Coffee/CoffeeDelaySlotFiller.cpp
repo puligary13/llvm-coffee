@@ -119,8 +119,18 @@ runOnMachineBasicBlock(MachineBasicBlock &MBB) {
           findDelayInstr(MBB, I, D)) {
         MBB.splice(llvm::next(I), &MBB, D);
         ++UsefulSlots;
-      } else
+      } else {
+
+        if(I->getOpcode() == Coffee::FP_CMP_0 || I->getOpcode() == Coffee::FP_CMP_1
+                || I->getOpcode() == Coffee::FP_CMP_2  || I->getOpcode() == Coffee::FP_CMP_3)
+        {
+            // two delay slot for FP cmp
         BuildMI(MBB, llvm::next(I), I->getDebugLoc(), TII->get(Coffee::NOP));
+        BuildMI(MBB, llvm::next(I), I->getDebugLoc(), TII->get(Coffee::NOP));
+        } else {
+        BuildMI(MBB, llvm::next(I), I->getDebugLoc(), TII->get(Coffee::NOP));
+        }
+      }
 
       // Record the filler instruction that filled the delay slot.
       // The instruction after it will be visited in the next iteration.

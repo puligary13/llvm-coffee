@@ -37,6 +37,7 @@ def IsCOP3        : Predicate<"Subtarget.isCOP3()">;
 
 //def SDT_COFFEEfpCmp     : SDTypeProfile<1, 2, [SDTCisSameAs<0, 1>]>;
 def SDT_COFFEEfpCmp     : SDTypeProfile<1, 2, []>;
+
 def COFFEEfpcmp           : SDNode<"COFFEEISD::FPCMP", SDT_COFFEEfpCmp,
                               [SDNPOutGlue]>;
 
@@ -185,19 +186,511 @@ def fpimm0neg : PatLeaf<(fpimm), [{
 let Predicates = [IsCOP0] in {
 def : Pat<(f32 (sint_to_fp GPRC:$src)), (CVT_S_W_0 GPRC:$src)>;
 def : Pat<(i32 (fp_to_sint FPRC:$src)), (CVT_W_S_0 FPRC:$src)>;
+//def : Pat<(f32 (uint_to_fp GPRC:$src)), (CVT_S_W_0 GPRC:$src)>;
+//def : Pat<(i32 (fp_to_uint FPRC:$src)), (CVT_W_S_0 FPRC:$src)>;
 }
 
 let Predicates = [IsCOP1] in {
 def : Pat<(f32 (sint_to_fp GPRC:$src)), (CVT_S_W_1 GPRC:$src)>;
 def : Pat<(i32 (fp_to_sint FPRC:$src)), (CVT_W_S_1 FPRC:$src)>;
+//def : Pat<(f32 (uint_to_fp GPRC:$src)), (CVT_S_W_1 GPRC:$src)>;
+//def : Pat<(i32 (fp_to_uint FPRC:$src)), (CVT_W_S_1 FPRC:$src)>;
 }
 
 let Predicates = [IsCOP2] in {
 def : Pat<(f32 (sint_to_fp GPRC:$src)), (CVT_S_W_2 GPRC:$src)>;
 def : Pat<(i32 (fp_to_sint FPRC:$src)), (CVT_W_S_2 FPRC:$src)>;
+//def : Pat<(f32 (uint_to_fp GPRC:$src)), (CVT_S_W_2 GPRC:$src)>;
+//def : Pat<(i32 (fp_to_uint FPRC:$src)), (CVT_W_S_2 FPRC:$src)>;
 }
 
 let Predicates = [IsCOP3] in {
 def : Pat<(f32 (sint_to_fp GPRC:$src)), (CVT_S_W_3 GPRC:$src)>;
 def : Pat<(i32 (fp_to_sint FPRC:$src)), (CVT_W_S_3 FPRC:$src)>;
+//def : Pat<(f32 (uint_to_fp GPRC:$src)), (CVT_S_W_3 GPRC:$src)>;
+//def : Pat<(i32 (fp_to_uint FPRC:$src)), (CVT_W_S_3 FPRC:$src)>;
 }
+
+//branch pattern
+//greater or equal
+def : Pat<(brcond (i32 (setge FPRC:$lhs, FPRC:$rhs)), bb:$dst),
+          (BEGT (FP_CMP_0 FPRC:$lhs, FPRC:$rhs), bb:$dst)>,
+          Requires<[IsCOP0]>;
+def : Pat<(brcond (i32 (setge FPRC:$lhs, FPRC:$rhs)), bb:$dst),
+          (BEGT (FP_CMP_1 FPRC:$lhs, FPRC:$rhs), bb:$dst)>,
+          Requires<[IsCOP1]>;
+def : Pat<(brcond (i32 (setge FPRC:$lhs, FPRC:$rhs)), bb:$dst),
+          (BEGT (FP_CMP_2 FPRC:$lhs, FPRC:$rhs), bb:$dst)>,
+          Requires<[IsCOP2]>;
+def : Pat<(brcond (i32 (setge FPRC:$lhs, FPRC:$rhs)), bb:$dst),
+          (BEGT (FP_CMP_3 FPRC:$lhs, FPRC:$rhs), bb:$dst)>,
+          Requires<[IsCOP3]>;
+
+def : Pat<(brcond (i32 (setuge FPRC:$lhs, FPRC:$rhs)), bb:$dst),
+          (BEGT (FP_CMP_0 FPRC:$lhs, FPRC:$rhs), bb:$dst)>,
+          Requires<[IsCOP0]>;
+def : Pat<(brcond (i32 (setuge FPRC:$lhs, FPRC:$rhs)), bb:$dst),
+          (BEGT (FP_CMP_1 FPRC:$lhs, FPRC:$rhs), bb:$dst)>,
+          Requires<[IsCOP1]>;
+def : Pat<(brcond (i32 (setuge FPRC:$lhs, FPRC:$rhs)), bb:$dst),
+          (BEGT (FP_CMP_2 FPRC:$lhs, FPRC:$rhs), bb:$dst)>,
+          Requires<[IsCOP2]>;
+def : Pat<(brcond (i32 (setuge FPRC:$lhs, FPRC:$rhs)), bb:$dst),
+          (BEGT (FP_CMP_3 FPRC:$lhs, FPRC:$rhs), bb:$dst)>,
+          Requires<[IsCOP3]>;
+
+def : Pat<(brcond (i32 (setoge FPRC:$lhs, FPRC:$rhs)), bb:$dst),
+          (BEGT (FP_CMP_0 FPRC:$lhs, FPRC:$rhs), bb:$dst)>,
+          Requires<[IsCOP0]>;
+def : Pat<(brcond (i32 (setoge FPRC:$lhs, FPRC:$rhs)), bb:$dst),
+          (BEGT (FP_CMP_1 FPRC:$lhs, FPRC:$rhs), bb:$dst)>,
+          Requires<[IsCOP1]>;
+def : Pat<(brcond (i32 (setoge FPRC:$lhs, FPRC:$rhs)), bb:$dst),
+          (BEGT (FP_CMP_2 FPRC:$lhs, FPRC:$rhs), bb:$dst)>,
+          Requires<[IsCOP2]>;
+def : Pat<(brcond (i32 (setoge FPRC:$lhs, FPRC:$rhs)), bb:$dst),
+          (BEGT (FP_CMP_3 FPRC:$lhs, FPRC:$rhs), bb:$dst)>,
+          Requires<[IsCOP3]>;
+
+//less or equal
+def : Pat<(brcond (i32 (setle FPRC:$lhs, FPRC:$rhs)), bb:$dst),
+          (BELT (FP_CMP_0 FPRC:$lhs, FPRC:$rhs), bb:$dst)>,
+          Requires<[IsCOP0]>;
+def : Pat<(brcond (i32 (setle FPRC:$lhs, FPRC:$rhs)), bb:$dst),
+          (BELT (FP_CMP_1 FPRC:$lhs, FPRC:$rhs), bb:$dst)>,
+          Requires<[IsCOP1]>;
+def : Pat<(brcond (i32 (setle FPRC:$lhs, FPRC:$rhs)), bb:$dst),
+          (BELT (FP_CMP_2 FPRC:$lhs, FPRC:$rhs), bb:$dst)>,
+          Requires<[IsCOP2]>;
+def : Pat<(brcond (i32 (setle FPRC:$lhs, FPRC:$rhs)), bb:$dst),
+          (BELT (FP_CMP_3 FPRC:$lhs, FPRC:$rhs), bb:$dst)>,
+          Requires<[IsCOP3]>;
+
+def : Pat<(brcond (i32 (setule FPRC:$lhs, FPRC:$rhs)), bb:$dst),
+          (BELT (FP_CMP_0 FPRC:$lhs, FPRC:$rhs), bb:$dst)>,
+          Requires<[IsCOP0]>;
+def : Pat<(brcond (i32 (setule FPRC:$lhs, FPRC:$rhs)), bb:$dst),
+          (BELT (FP_CMP_1 FPRC:$lhs, FPRC:$rhs), bb:$dst)>,
+          Requires<[IsCOP1]>;
+def : Pat<(brcond (i32 (setule FPRC:$lhs, FPRC:$rhs)), bb:$dst),
+          (BELT (FP_CMP_2 FPRC:$lhs, FPRC:$rhs), bb:$dst)>,
+          Requires<[IsCOP2]>;
+def : Pat<(brcond (i32 (setule FPRC:$lhs, FPRC:$rhs)), bb:$dst),
+          (BELT (FP_CMP_3 FPRC:$lhs, FPRC:$rhs), bb:$dst)>,
+          Requires<[IsCOP3]>;
+
+def : Pat<(brcond (i32 (setole FPRC:$lhs, FPRC:$rhs)), bb:$dst),
+          (BELT (FP_CMP_0 FPRC:$lhs, FPRC:$rhs), bb:$dst)>,
+          Requires<[IsCOP0]>;
+def : Pat<(brcond (i32 (setole FPRC:$lhs, FPRC:$rhs)), bb:$dst),
+          (BELT (FP_CMP_1 FPRC:$lhs, FPRC:$rhs), bb:$dst)>,
+          Requires<[IsCOP1]>;
+def : Pat<(brcond (i32 (setole FPRC:$lhs, FPRC:$rhs)), bb:$dst),
+          (BELT (FP_CMP_2 FPRC:$lhs, FPRC:$rhs), bb:$dst)>,
+          Requires<[IsCOP2]>;
+def : Pat<(brcond (i32 (setole FPRC:$lhs, FPRC:$rhs)), bb:$dst),
+          (BELT (FP_CMP_3 FPRC:$lhs, FPRC:$rhs), bb:$dst)>,
+          Requires<[IsCOP3]>;
+
+//equal
+def : Pat<(brcond (i32 (seteq FPRC:$lhs, FPRC:$rhs)), bb:$dst),
+          (BEQ (FP_CMP_0 FPRC:$lhs, FPRC:$rhs), bb:$dst)>,
+          Requires<[IsCOP0]>;
+def : Pat<(brcond (i32 (seteq FPRC:$lhs, FPRC:$rhs)), bb:$dst),
+          (BEQ (FP_CMP_1 FPRC:$lhs, FPRC:$rhs), bb:$dst)>,
+          Requires<[IsCOP1]>;
+def : Pat<(brcond (i32 (seteq FPRC:$lhs, FPRC:$rhs)), bb:$dst),
+          (BEQ (FP_CMP_2 FPRC:$lhs, FPRC:$rhs), bb:$dst)>,
+          Requires<[IsCOP2]>;
+def : Pat<(brcond (i32 (seteq FPRC:$lhs, FPRC:$rhs)), bb:$dst),
+          (BEQ (FP_CMP_3 FPRC:$lhs, FPRC:$rhs), bb:$dst)>,
+          Requires<[IsCOP3]>;
+
+def : Pat<(brcond (i32 (setueq FPRC:$lhs, FPRC:$rhs)), bb:$dst),
+          (BEQ (FP_CMP_0 FPRC:$lhs, FPRC:$rhs), bb:$dst)>,
+          Requires<[IsCOP0]>;
+def : Pat<(brcond (i32 (setueq FPRC:$lhs, FPRC:$rhs)), bb:$dst),
+          (BEQ (FP_CMP_1 FPRC:$lhs, FPRC:$rhs), bb:$dst)>,
+          Requires<[IsCOP1]>;
+def : Pat<(brcond (i32 (setueq FPRC:$lhs, FPRC:$rhs)), bb:$dst),
+          (BEQ (FP_CMP_2 FPRC:$lhs, FPRC:$rhs), bb:$dst)>,
+          Requires<[IsCOP2]>;
+def : Pat<(brcond (i32 (setueq FPRC:$lhs, FPRC:$rhs)), bb:$dst),
+          (BEQ (FP_CMP_3 FPRC:$lhs, FPRC:$rhs), bb:$dst)>,
+          Requires<[IsCOP3]>;
+
+def : Pat<(brcond (i32 (setoeq FPRC:$lhs, FPRC:$rhs)), bb:$dst),
+          (BEQ (FP_CMP_0 FPRC:$lhs, FPRC:$rhs), bb:$dst)>,
+          Requires<[IsCOP0]>;
+def : Pat<(brcond (i32 (setoeq FPRC:$lhs, FPRC:$rhs)), bb:$dst),
+          (BEQ (FP_CMP_1 FPRC:$lhs, FPRC:$rhs), bb:$dst)>,
+          Requires<[IsCOP1]>;
+def : Pat<(brcond (i32 (setoeq FPRC:$lhs, FPRC:$rhs)), bb:$dst),
+          (BEQ (FP_CMP_2 FPRC:$lhs, FPRC:$rhs), bb:$dst)>,
+          Requires<[IsCOP2]>;
+def : Pat<(brcond (i32 (setoeq FPRC:$lhs, FPRC:$rhs)), bb:$dst),
+          (BEQ (FP_CMP_3 FPRC:$lhs, FPRC:$rhs), bb:$dst)>,
+          Requires<[IsCOP3]>;
+
+//greater
+def : Pat<(brcond (i32 (setgt FPRC:$lhs, FPRC:$rhs)), bb:$dst),
+          (BGT (FP_CMP_0 FPRC:$lhs, FPRC:$rhs), bb:$dst)>,
+          Requires<[IsCOP0]>;
+def : Pat<(brcond (i32 (setgt FPRC:$lhs, FPRC:$rhs)), bb:$dst),
+          (BGT (FP_CMP_1 FPRC:$lhs, FPRC:$rhs), bb:$dst)>,
+          Requires<[IsCOP1]>;
+def : Pat<(brcond (i32 (setgt FPRC:$lhs, FPRC:$rhs)), bb:$dst),
+          (BGT (FP_CMP_2 FPRC:$lhs, FPRC:$rhs), bb:$dst)>,
+          Requires<[IsCOP2]>;
+def : Pat<(brcond (i32 (setgt FPRC:$lhs, FPRC:$rhs)), bb:$dst),
+          (BGT (FP_CMP_3 FPRC:$lhs, FPRC:$rhs), bb:$dst)>,
+          Requires<[IsCOP3]>;
+
+def : Pat<(brcond (i32 (setugt FPRC:$lhs, FPRC:$rhs)), bb:$dst),
+          (BGT (FP_CMP_0 FPRC:$lhs, FPRC:$rhs), bb:$dst)>,
+          Requires<[IsCOP0]>;
+def : Pat<(brcond (i32 (setugt FPRC:$lhs, FPRC:$rhs)), bb:$dst),
+          (BGT (FP_CMP_1 FPRC:$lhs, FPRC:$rhs), bb:$dst)>,
+          Requires<[IsCOP1]>;
+def : Pat<(brcond (i32 (setugt FPRC:$lhs, FPRC:$rhs)), bb:$dst),
+          (BGT (FP_CMP_2 FPRC:$lhs, FPRC:$rhs), bb:$dst)>,
+          Requires<[IsCOP2]>;
+def : Pat<(brcond (i32 (setugt FPRC:$lhs, FPRC:$rhs)), bb:$dst),
+          (BGT (FP_CMP_3 FPRC:$lhs, FPRC:$rhs), bb:$dst)>,
+          Requires<[IsCOP3]>;
+
+def : Pat<(brcond (i32 (setogt FPRC:$lhs, FPRC:$rhs)), bb:$dst),
+          (BGT (FP_CMP_0 FPRC:$lhs, FPRC:$rhs), bb:$dst)>,
+          Requires<[IsCOP0]>;
+def : Pat<(brcond (i32 (setogt FPRC:$lhs, FPRC:$rhs)), bb:$dst),
+          (BGT (FP_CMP_1 FPRC:$lhs, FPRC:$rhs), bb:$dst)>,
+          Requires<[IsCOP1]>;
+def : Pat<(brcond (i32 (setogt FPRC:$lhs, FPRC:$rhs)), bb:$dst),
+          (BGT (FP_CMP_2 FPRC:$lhs, FPRC:$rhs), bb:$dst)>,
+          Requires<[IsCOP2]>;
+def : Pat<(brcond (i32 (setogt FPRC:$lhs, FPRC:$rhs)), bb:$dst),
+          (BGT (FP_CMP_3 FPRC:$lhs, FPRC:$rhs), bb:$dst)>,
+          Requires<[IsCOP3]>;
+
+//less
+def : Pat<(brcond (i32 (setlt FPRC:$lhs, FPRC:$rhs)), bb:$dst),
+          (BLT (FP_CMP_0 FPRC:$lhs, FPRC:$rhs), bb:$dst)>,
+          Requires<[IsCOP0]>;
+def : Pat<(brcond (i32 (setlt FPRC:$lhs, FPRC:$rhs)), bb:$dst),
+          (BLT (FP_CMP_1 FPRC:$lhs, FPRC:$rhs), bb:$dst)>,
+          Requires<[IsCOP1]>;
+def : Pat<(brcond (i32 (setlt FPRC:$lhs, FPRC:$rhs)), bb:$dst),
+          (BLT (FP_CMP_2 FPRC:$lhs, FPRC:$rhs), bb:$dst)>,
+          Requires<[IsCOP2]>;
+def : Pat<(brcond (i32 (setlt FPRC:$lhs, FPRC:$rhs)), bb:$dst),
+          (BLT (FP_CMP_3 FPRC:$lhs, FPRC:$rhs), bb:$dst)>,
+          Requires<[IsCOP3]>;
+
+def : Pat<(brcond (i32 (setult FPRC:$lhs, FPRC:$rhs)), bb:$dst),
+          (BLT (FP_CMP_0 FPRC:$lhs, FPRC:$rhs), bb:$dst)>,
+          Requires<[IsCOP0]>;
+def : Pat<(brcond (i32 (setult FPRC:$lhs, FPRC:$rhs)), bb:$dst),
+          (BLT (FP_CMP_1 FPRC:$lhs, FPRC:$rhs), bb:$dst)>,
+          Requires<[IsCOP1]>;
+def : Pat<(brcond (i32 (setult FPRC:$lhs, FPRC:$rhs)), bb:$dst),
+          (BLT (FP_CMP_2 FPRC:$lhs, FPRC:$rhs), bb:$dst)>,
+          Requires<[IsCOP2]>;
+def : Pat<(brcond (i32 (setult FPRC:$lhs, FPRC:$rhs)), bb:$dst),
+          (BLT (FP_CMP_3 FPRC:$lhs, FPRC:$rhs), bb:$dst)>,
+          Requires<[IsCOP3]>;
+
+def : Pat<(brcond (i32 (setolt FPRC:$lhs, FPRC:$rhs)), bb:$dst),
+          (BLT (FP_CMP_0 FPRC:$lhs, FPRC:$rhs), bb:$dst)>,
+          Requires<[IsCOP0]>;
+def : Pat<(brcond (i32 (setolt FPRC:$lhs, FPRC:$rhs)), bb:$dst),
+          (BLT (FP_CMP_1 FPRC:$lhs, FPRC:$rhs), bb:$dst)>,
+          Requires<[IsCOP1]>;
+def : Pat<(brcond (i32 (setolt FPRC:$lhs, FPRC:$rhs)), bb:$dst),
+          (BLT (FP_CMP_2 FPRC:$lhs, FPRC:$rhs), bb:$dst)>,
+          Requires<[IsCOP2]>;
+def : Pat<(brcond (i32 (setolt FPRC:$lhs, FPRC:$rhs)), bb:$dst),
+          (BLT (FP_CMP_3 FPRC:$lhs, FPRC:$rhs), bb:$dst)>,
+          Requires<[IsCOP3]>;
+
+//not equal
+def : Pat<(brcond (i32 (setne FPRC:$lhs, FPRC:$rhs)), bb:$dst),
+          (BNE (FP_CMP_0 FPRC:$lhs, FPRC:$rhs), bb:$dst)>,
+          Requires<[IsCOP0]>;
+def : Pat<(brcond (i32 (setne FPRC:$lhs, FPRC:$rhs)), bb:$dst),
+          (BNE (FP_CMP_1 FPRC:$lhs, FPRC:$rhs), bb:$dst)>,
+          Requires<[IsCOP1]>;
+def : Pat<(brcond (i32 (setne FPRC:$lhs, FPRC:$rhs)), bb:$dst),
+          (BNE (FP_CMP_2 FPRC:$lhs, FPRC:$rhs), bb:$dst)>,
+          Requires<[IsCOP2]>;
+def : Pat<(brcond (i32 (setne FPRC:$lhs, FPRC:$rhs)), bb:$dst),
+          (BNE (FP_CMP_3 FPRC:$lhs, FPRC:$rhs), bb:$dst)>,
+          Requires<[IsCOP3]>;
+
+def : Pat<(brcond (i32 (setune FPRC:$lhs, FPRC:$rhs)), bb:$dst),
+          (BNE (FP_CMP_0 FPRC:$lhs, FPRC:$rhs), bb:$dst)>,
+          Requires<[IsCOP0]>;
+def : Pat<(brcond (i32 (setune FPRC:$lhs, FPRC:$rhs)), bb:$dst),
+          (BNE (FP_CMP_1 FPRC:$lhs, FPRC:$rhs), bb:$dst)>,
+          Requires<[IsCOP1]>;
+def : Pat<(brcond (i32 (setune FPRC:$lhs, FPRC:$rhs)), bb:$dst),
+          (BNE (FP_CMP_2 FPRC:$lhs, FPRC:$rhs), bb:$dst)>,
+          Requires<[IsCOP2]>;
+def : Pat<(brcond (i32 (setune FPRC:$lhs, FPRC:$rhs)), bb:$dst),
+          (BNE (FP_CMP_3 FPRC:$lhs, FPRC:$rhs), bb:$dst)>,
+          Requires<[IsCOP3]>;
+
+
+def : Pat<(brcond (i32 (setone FPRC:$lhs, FPRC:$rhs)), bb:$dst),
+          (BNE (FP_CMP_0 FPRC:$lhs, FPRC:$rhs), bb:$dst)>,
+          Requires<[IsCOP0]>;
+def : Pat<(brcond (i32 (setone FPRC:$lhs, FPRC:$rhs)), bb:$dst),
+          (BNE (FP_CMP_1 FPRC:$lhs, FPRC:$rhs), bb:$dst)>,
+          Requires<[IsCOP1]>;
+def : Pat<(brcond (i32 (setone FPRC:$lhs, FPRC:$rhs)), bb:$dst),
+          (BNE (FP_CMP_2 FPRC:$lhs, FPRC:$rhs), bb:$dst)>,
+          Requires<[IsCOP2]>;
+def : Pat<(brcond (i32 (setone FPRC:$lhs, FPRC:$rhs)), bb:$dst),
+          (BNE (FP_CMP_3 FPRC:$lhs, FPRC:$rhs), bb:$dst)>,
+          Requires<[IsCOP3]>;
+
+// setcc pattern
+//greater or equal
+def : Pat<(setge FPRC:$lhs, FPRC:$rhs),
+          (FP_CMP_0 FPRC:$lhs, FPRC:$rhs)>,
+          Requires<[IsCOP0]>;
+def : Pat<(setge FPRC:$lhs, FPRC:$rhs),
+          (FP_CMP_1 FPRC:$lhs, FPRC:$rhs)>,
+          Requires<[IsCOP1]>;
+def : Pat<(setge FPRC:$lhs, FPRC:$rhs),
+          (FP_CMP_2 FPRC:$lhs, FPRC:$rhs)>,
+          Requires<[IsCOP2]>;
+def : Pat<(setge FPRC:$lhs, FPRC:$rhs),
+          (FP_CMP_3 FPRC:$lhs, FPRC:$rhs)>,
+          Requires<[IsCOP3]>;
+
+def : Pat<(setuge FPRC:$lhs, FPRC:$rhs),
+          (FP_CMP_0 FPRC:$lhs, FPRC:$rhs)>,
+          Requires<[IsCOP0]>;
+def : Pat<(setuge FPRC:$lhs, FPRC:$rhs),
+          (FP_CMP_1 FPRC:$lhs, FPRC:$rhs)>,
+          Requires<[IsCOP1]>;
+def : Pat<(setuge FPRC:$lhs, FPRC:$rhs),
+          (FP_CMP_2 FPRC:$lhs, FPRC:$rhs)>,
+          Requires<[IsCOP2]>;
+def : Pat<(setuge FPRC:$lhs, FPRC:$rhs),
+          (FP_CMP_3 FPRC:$lhs, FPRC:$rhs)>,
+          Requires<[IsCOP3]>;
+
+def : Pat<(setoge FPRC:$lhs, FPRC:$rhs),
+          (FP_CMP_0 FPRC:$lhs, FPRC:$rhs)>,
+          Requires<[IsCOP0]>;
+def : Pat<(setoge FPRC:$lhs, FPRC:$rhs),
+          (FP_CMP_1 FPRC:$lhs, FPRC:$rhs)>,
+          Requires<[IsCOP1]>;
+def : Pat<(setoge FPRC:$lhs, FPRC:$rhs),
+          (FP_CMP_2 FPRC:$lhs, FPRC:$rhs)>,
+          Requires<[IsCOP2]>;
+def : Pat<(setoge FPRC:$lhs, FPRC:$rhs),
+          (FP_CMP_3 FPRC:$lhs, FPRC:$rhs)>,
+          Requires<[IsCOP3]>;
+
+//less or equal
+def : Pat<(setle FPRC:$lhs, FPRC:$rhs),
+          (FP_CMP_0 FPRC:$lhs, FPRC:$rhs)>,
+          Requires<[IsCOP0]>;
+def : Pat<(setle FPRC:$lhs, FPRC:$rhs),
+          (FP_CMP_1 FPRC:$lhs, FPRC:$rhs)>,
+          Requires<[IsCOP1]>;
+def : Pat<(setle FPRC:$lhs, FPRC:$rhs),
+          (FP_CMP_2 FPRC:$lhs, FPRC:$rhs)>,
+          Requires<[IsCOP2]>;
+def : Pat<(setle FPRC:$lhs, FPRC:$rhs),
+          (FP_CMP_3 FPRC:$lhs, FPRC:$rhs)>,
+          Requires<[IsCOP3]>;
+
+def : Pat<(setule FPRC:$lhs, FPRC:$rhs),
+          (FP_CMP_0 FPRC:$lhs, FPRC:$rhs)>,
+          Requires<[IsCOP0]>;
+def : Pat<(setule FPRC:$lhs, FPRC:$rhs),
+          (FP_CMP_1 FPRC:$lhs, FPRC:$rhs)>,
+          Requires<[IsCOP1]>;
+def : Pat<(setule FPRC:$lhs, FPRC:$rhs),
+          (FP_CMP_2 FPRC:$lhs, FPRC:$rhs)>,
+          Requires<[IsCOP2]>;
+def : Pat<(setule FPRC:$lhs, FPRC:$rhs),
+          (FP_CMP_3 FPRC:$lhs, FPRC:$rhs)>,
+          Requires<[IsCOP3]>;
+
+def : Pat<(setole FPRC:$lhs, FPRC:$rhs),
+          (FP_CMP_0 FPRC:$lhs, FPRC:$rhs)>,
+          Requires<[IsCOP0]>;
+def : Pat<(setole FPRC:$lhs, FPRC:$rhs),
+          (FP_CMP_1 FPRC:$lhs, FPRC:$rhs)>,
+          Requires<[IsCOP1]>;
+def : Pat<(setole FPRC:$lhs, FPRC:$rhs),
+          (FP_CMP_2 FPRC:$lhs, FPRC:$rhs)>,
+          Requires<[IsCOP2]>;
+def : Pat<(setole FPRC:$lhs, FPRC:$rhs),
+          (FP_CMP_3 FPRC:$lhs, FPRC:$rhs)>,
+          Requires<[IsCOP3]>;
+
+//equal
+def : Pat<(seteq FPRC:$lhs, FPRC:$rhs),
+          (FP_CMP_0 FPRC:$lhs, FPRC:$rhs)>,
+          Requires<[IsCOP0]>;
+def : Pat<(seteq FPRC:$lhs, FPRC:$rhs),
+          (FP_CMP_1 FPRC:$lhs, FPRC:$rhs)>,
+          Requires<[IsCOP1]>;
+def : Pat<(seteq FPRC:$lhs, FPRC:$rhs),
+          (FP_CMP_2 FPRC:$lhs, FPRC:$rhs)>,
+          Requires<[IsCOP2]>;
+def : Pat<(seteq FPRC:$lhs, FPRC:$rhs),
+          (FP_CMP_3 FPRC:$lhs, FPRC:$rhs)>,
+          Requires<[IsCOP3]>;
+
+def : Pat<(setueq FPRC:$lhs, FPRC:$rhs),
+          (FP_CMP_0 FPRC:$lhs, FPRC:$rhs)>,
+          Requires<[IsCOP0]>;
+def : Pat<(setueq FPRC:$lhs, FPRC:$rhs),
+          (FP_CMP_1 FPRC:$lhs, FPRC:$rhs)>,
+          Requires<[IsCOP1]>;
+def : Pat<(setueq FPRC:$lhs, FPRC:$rhs),
+          (FP_CMP_2 FPRC:$lhs, FPRC:$rhs)>,
+          Requires<[IsCOP2]>;
+def : Pat<(setueq FPRC:$lhs, FPRC:$rhs),
+          (FP_CMP_3 FPRC:$lhs, FPRC:$rhs)>,
+          Requires<[IsCOP3]>;
+
+def : Pat<(setoeq FPRC:$lhs, FPRC:$rhs),
+          (FP_CMP_0 FPRC:$lhs, FPRC:$rhs)>,
+          Requires<[IsCOP0]>;
+def : Pat<(setoeq FPRC:$lhs, FPRC:$rhs),
+          (FP_CMP_1 FPRC:$lhs, FPRC:$rhs)>,
+          Requires<[IsCOP1]>;
+def : Pat<(setoeq FPRC:$lhs, FPRC:$rhs),
+          (FP_CMP_2 FPRC:$lhs, FPRC:$rhs)>,
+          Requires<[IsCOP2]>;
+def : Pat<(setoeq FPRC:$lhs, FPRC:$rhs),
+          (FP_CMP_3 FPRC:$lhs, FPRC:$rhs)>,
+          Requires<[IsCOP3]>;
+
+//greater
+def : Pat<(setgt FPRC:$lhs, FPRC:$rhs),
+          (FP_CMP_0 FPRC:$lhs, FPRC:$rhs)>,
+          Requires<[IsCOP0]>;
+def : Pat<(setgt FPRC:$lhs, FPRC:$rhs),
+          (FP_CMP_1 FPRC:$lhs, FPRC:$rhs)>,
+          Requires<[IsCOP1]>;
+def : Pat<(setgt FPRC:$lhs, FPRC:$rhs),
+          (FP_CMP_2 FPRC:$lhs, FPRC:$rhs)>,
+          Requires<[IsCOP2]>;
+def : Pat<(setgt FPRC:$lhs, FPRC:$rhs),
+          (FP_CMP_3 FPRC:$lhs, FPRC:$rhs)>,
+          Requires<[IsCOP3]>;
+
+def : Pat<(setugt FPRC:$lhs, FPRC:$rhs),
+          (FP_CMP_0 FPRC:$lhs, FPRC:$rhs)>,
+          Requires<[IsCOP0]>;
+def : Pat<(setugt FPRC:$lhs, FPRC:$rhs),
+          (FP_CMP_1 FPRC:$lhs, FPRC:$rhs)>,
+          Requires<[IsCOP1]>;
+def : Pat<(setugt FPRC:$lhs, FPRC:$rhs),
+          (FP_CMP_2 FPRC:$lhs, FPRC:$rhs)>,
+          Requires<[IsCOP2]>;
+def : Pat<(setugt FPRC:$lhs, FPRC:$rhs),
+          (FP_CMP_3 FPRC:$lhs, FPRC:$rhs)>,
+          Requires<[IsCOP3]>;
+
+def : Pat<(setogt FPRC:$lhs, FPRC:$rhs),
+          (FP_CMP_0 FPRC:$lhs, FPRC:$rhs)>,
+          Requires<[IsCOP0]>;
+def : Pat<(setogt FPRC:$lhs, FPRC:$rhs),
+          (FP_CMP_1 FPRC:$lhs, FPRC:$rhs)>,
+          Requires<[IsCOP1]>;
+def : Pat<(setogt FPRC:$lhs, FPRC:$rhs),
+          (FP_CMP_2 FPRC:$lhs, FPRC:$rhs)>,
+          Requires<[IsCOP2]>;
+def : Pat<(setogt FPRC:$lhs, FPRC:$rhs),
+          (FP_CMP_3 FPRC:$lhs, FPRC:$rhs)>,
+          Requires<[IsCOP3]>;
+
+//less
+def : Pat<(setlt FPRC:$lhs, FPRC:$rhs),
+          (FP_CMP_0 FPRC:$lhs, FPRC:$rhs)>,
+          Requires<[IsCOP0]>;
+def : Pat<(setlt FPRC:$lhs, FPRC:$rhs),
+          (FP_CMP_1 FPRC:$lhs, FPRC:$rhs)>,
+          Requires<[IsCOP1]>;
+def : Pat<(setlt FPRC:$lhs, FPRC:$rhs),
+          (FP_CMP_2 FPRC:$lhs, FPRC:$rhs)>,
+          Requires<[IsCOP2]>;
+def : Pat<(setlt FPRC:$lhs, FPRC:$rhs),
+          (FP_CMP_3 FPRC:$lhs, FPRC:$rhs)>,
+          Requires<[IsCOP3]>;
+
+def : Pat<(setult FPRC:$lhs, FPRC:$rhs),
+          (FP_CMP_0 FPRC:$lhs, FPRC:$rhs)>,
+          Requires<[IsCOP0]>;
+def : Pat<(setult FPRC:$lhs, FPRC:$rhs),
+          (FP_CMP_1 FPRC:$lhs, FPRC:$rhs)>,
+          Requires<[IsCOP1]>;
+def : Pat<(setult FPRC:$lhs, FPRC:$rhs),
+          (FP_CMP_2 FPRC:$lhs, FPRC:$rhs)>,
+          Requires<[IsCOP2]>;
+def : Pat<(setult FPRC:$lhs, FPRC:$rhs),
+          (FP_CMP_3 FPRC:$lhs, FPRC:$rhs)>,
+          Requires<[IsCOP3]>;
+
+def : Pat<(setolt FPRC:$lhs, FPRC:$rhs),
+          (FP_CMP_0 FPRC:$lhs, FPRC:$rhs)>,
+          Requires<[IsCOP0]>;
+def : Pat<(setolt FPRC:$lhs, FPRC:$rhs),
+          (FP_CMP_1 FPRC:$lhs, FPRC:$rhs)>,
+          Requires<[IsCOP1]>;
+def : Pat<(setolt FPRC:$lhs, FPRC:$rhs),
+          (FP_CMP_2 FPRC:$lhs, FPRC:$rhs)>,
+          Requires<[IsCOP2]>;
+def : Pat<(setolt FPRC:$lhs, FPRC:$rhs),
+          (FP_CMP_3 FPRC:$lhs, FPRC:$rhs)>,
+          Requires<[IsCOP3]>;
+
+//not equal
+def : Pat<(setne FPRC:$lhs, FPRC:$rhs),
+          (FP_CMP_0 FPRC:$lhs, FPRC:$rhs)>,
+          Requires<[IsCOP0]>;
+def : Pat<(setne FPRC:$lhs, FPRC:$rhs),
+          (FP_CMP_1 FPRC:$lhs, FPRC:$rhs)>,
+          Requires<[IsCOP1]>;
+def : Pat<(setne FPRC:$lhs, FPRC:$rhs),
+          (FP_CMP_2 FPRC:$lhs, FPRC:$rhs)>,
+          Requires<[IsCOP2]>;
+def : Pat<(setne FPRC:$lhs, FPRC:$rhs),
+          (FP_CMP_3 FPRC:$lhs, FPRC:$rhs)>,
+          Requires<[IsCOP3]>;
+
+def : Pat<(setune FPRC:$lhs, FPRC:$rhs),
+          (FP_CMP_0 FPRC:$lhs, FPRC:$rhs)>,
+          Requires<[IsCOP0]>;
+def : Pat<(setune FPRC:$lhs, FPRC:$rhs),
+          (FP_CMP_1 FPRC:$lhs, FPRC:$rhs)>,
+          Requires<[IsCOP1]>;
+def : Pat<(setune FPRC:$lhs, FPRC:$rhs),
+          (FP_CMP_2 FPRC:$lhs, FPRC:$rhs)>,
+          Requires<[IsCOP2]>;
+def : Pat<(setune FPRC:$lhs, FPRC:$rhs),
+          (FP_CMP_3 FPRC:$lhs, FPRC:$rhs)>,
+          Requires<[IsCOP3]>;
+
+
+def : Pat<(setone FPRC:$lhs, FPRC:$rhs),
+          (FP_CMP_0 FPRC:$lhs, FPRC:$rhs)>,
+          Requires<[IsCOP0]>;
+def : Pat<(setone FPRC:$lhs, FPRC:$rhs),
+          (FP_CMP_1 FPRC:$lhs, FPRC:$rhs)>,
+          Requires<[IsCOP1]>;
+def : Pat<(setone FPRC:$lhs, FPRC:$rhs),
+          (FP_CMP_2 FPRC:$lhs, FPRC:$rhs)>,
+          Requires<[IsCOP2]>;
+def : Pat<(setone FPRC:$lhs, FPRC:$rhs),
+          (FP_CMP_3 FPRC:$lhs, FPRC:$rhs)>,
+          Requires<[IsCOP3]>;

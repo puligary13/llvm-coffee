@@ -82,7 +82,7 @@ A0, A1, A2, A3, V0, V1,
 SP, FP, PSR, SPSR, LR
 )>;
 
-// FP register class
+//floating point registers
 def FPRC : RegisterClass<"Coffee", [f32], 32, (add
 //Not preserved
 T0, T1, T2, T3, T4, T5, T6, T7, T8, T9,
@@ -94,6 +94,7 @@ A0, A1, A2, A3, V0, V1,
 SP, FP, PSR, SPSR, LR
 )>;
 
+//def CRRC : RegisterClass<"Coffee", [i32], 32, (add CR0)>;
 
 def CRRC : RegisterClass<"Coffee", [i32], 32, (add CR0, CR1, CR2, CR3,
                                                 CR4, CR5, CR6, CR7)>;

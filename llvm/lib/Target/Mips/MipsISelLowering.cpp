@@ -173,10 +173,10 @@ MipsTargetLowering(MipsTargetMachine &TM)
 
     // When dealing with single precision only, use libcalls
     if (!Subtarget->isSingleFloat()) {
-      if (HasMips64)
-        addRegisterClass(MVT::f64, &Mips::FGR64RegClass);
-      else
-        addRegisterClass(MVT::f64, &Mips::AFGR64RegClass);
+     // if (HasMips64)
+     //   addRegisterClass(MVT::f64, &Mips::FGR64RegClass);
+     // else
+     //   addRegisterClass(MVT::f64, &Mips::AFGR64RegClass);
     }
   }
 

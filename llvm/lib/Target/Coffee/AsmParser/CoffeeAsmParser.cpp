@@ -716,22 +716,14 @@ int CoffeeAsmParser::matchRegisterName(StringRef Name) {
             .Case("r30",  Coffee::SPSR)
             .Case("r31",  Coffee::LR)
 
-            .Case("cr0",  Coffee::CR0)
-            .Case("c0",  Coffee::CR0)
-            .Case("cr1",  Coffee::CR1)
-            .Case("c1",  Coffee::CR1)
-            .Case("cr2",  Coffee::CR2)
-            .Case("c2",  Coffee::CR2)
-            .Case("cr3",  Coffee::CR3)
-            .Case("c3",  Coffee::CR3)
 
-            .Case("cr4",  Coffee::CR4)
+            .Case("c0",  Coffee::CR0)
+            .Case("c1",  Coffee::CR1)
+            .Case("c2",  Coffee::CR2)
+            .Case("c3",  Coffee::CR3)
             .Case("c4",  Coffee::CR4)
-            .Case("cr5",  Coffee::CR5)
             .Case("c5",  Coffee::CR5)
-            .Case("cr6",  Coffee::CR6)
             .Case("c6",  Coffee::CR6)
-            .Case("cr7",  Coffee::CR7)
             .Case("c7",  Coffee::CR7)
 
             .Default(-1);

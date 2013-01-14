@@ -29,6 +29,8 @@ def SDT_COFFEERet          : SDTypeProfile<0, 1, [SDTCisInt<0>]>;
 def SDT_COFFEEDynAlloc    : SDTypeProfile<1, 1, [SDTCisVT<0, iPTR>,
                                                SDTCisSameAs<0, 1>]>;
 
+def SDT_COFFEECondMov : SDTypeProfile<1, 2, [SDTCisSameAs<0, 1>,
+                                          SDTCisSameAs<1, 2>]>;
 
 def SDT_MUL     : SDTypeProfile<1, 2, [SDTCisSameAs<0, 1>]>;
 
@@ -77,7 +79,7 @@ def COFFEEDynAlloc  : SDNode<"COFFEEISD::DynAlloc", SDT_COFFEEDynAlloc,
                            [SDNPHasChain, SDNPInGlue]>;
 
 
-
+def COFFEECondMov : SDNode<"COFFEEISD::CondMov", SDT_COFFEECondMov, [SDNPInGlue]>;
 
 
 def immZExt15  : PatLeaf<(imm), [{ return isInt<15>(N->getZExtValue());  }]>;
@@ -179,7 +181,7 @@ def uimm17_cmp  : Operand<i32>, ImmLeaf<i32, [{return isUInt<17>(Imm);}]>;
 def MEMri : Operand<i32> {
   let PrintMethod = "printMemOperand";
   let EncoderMethod = "getMemEncoding";
-  let MIOperandInfo = (ops GPRC, simm16);
+  let MIOperandInfo = (ops GPRC, simm15);
 }
 
 def mem_load : Operand<i32> {
@@ -202,9 +204,6 @@ def mem_store : Operand<i32> {
 class FMem<bits<6> op, dag outs, dag ins, string asmstr, list<dag> pattern,
           InstrItinClass itin>: FFI<op, outs, ins, asmstr, pattern>;
 
-
-
-
 // Jump
 class JumpFJ<bits<6> op, string instr_asm>:
   FJ<op, (outs), (ins jmptarget:$target),
@@ -215,10 +214,6 @@ class JumpFJ<bits<6> op, string instr_asm>:
   let hasDelaySlot = 1;
   let DecoderMethod = "DecodeJumpTarget";
 }
-
-class EffectiveAddress<string instr_asm, RegisterClass RC, Operand Mem> :
-  FMem<0b000000, (outs RC:$rt), (ins Mem:$addr),
-     instr_asm, [(set RC:$rt, addr:$addr)], IIAlu>;
 
 
 // Base class for indirect branch and return instruction classes.
@@ -312,6 +307,28 @@ def truncstorei16_a : AlignedStore<truncstorei16>;
 def store_a         : AlignedStore<store>;
 def truncstorei32_a : AlignedStore<truncstorei32>;
 
+
+//class EffectiveAddress<bits<6> op, string instr_asm, RegisterClass RC, Operand Mem> :
+//  FMem<0b000000, (outs RC:$rt), (ins Mem:$addr),
+//     instr_asm, [(set RC:$rt, addr:$addr)], IIAlu>;
+
+
+class EffectiveAddress<bits<6> op, string instr_asm, RegisterClass RC, Operand MemOpnd>:
+  FMem<op, (outs RC:$rt), (ins MemOpnd:$addr),
+     !strconcat(instr_asm, "\t$rt,\t$addr"),
+     [(set RC:$rt, addr:$addr)], IIAlu> {
+  bits <5> rt;
+  bits<20> addr;
+
+  let Opcode = op;
+
+  let Inst{25} = 0b0;
+
+  let Inst{9-5} = addr{4-0};
+
+  let Inst{24-10} = addr{19-5};
+  let Inst{4-0} = rt;
+}
 
 //load & store instruction
 
@@ -707,7 +724,7 @@ def ADJCALLSTACKUP : CoffeePseudo<(outs), (ins i32imm:$amt1, i32imm:$amt2),
 // instructions. The same not happens for stack address copies, so an
 // add op with mem ComplexPattern is used and the stack address copy
 // can be matched. It's similar to Sparc LEA_ADDRi
-def LEA_ADDiu : EffectiveAddress<"addiu\t$rt,\t$addr", GPRC, MEMri> {
+def LEA_ADDiu : EffectiveAddress<0b101000, "addiu", GPRC, MEMri> {
   let isCodeGenOnly = 1;
 }
 
@@ -715,7 +732,7 @@ def LEA_ADDiu : EffectiveAddress<"addiu\t$rt,\t$addr", GPRC, MEMri> {
 // $sp is added to the list of implicitly used registers to prevent dead code
 // elimination from removing instructions that modify $sp.
 let Uses = [SP] in
-def DynAlloc : EffectiveAddress<"addiu\t$rt,\t$addr", GPRC, MEMri> {
+def DynAlloc : EffectiveAddress<0b101000, "addiu", GPRC, MEMri> {
   let isCodeGenOnly = 1;
 }
 
@@ -811,59 +828,242 @@ def : Pat<(CoffeeJmpLink (i32 texternalsym:$dst)),
 
 // brcond patterns
 
-// != imm
-def : Pat<(brcond (i32 (setne GPRC:$lhs, immSExt16:$rhs)), bb:$dst),
-          (BNE (CMPri GPRC:$lhs, immSExt16:$rhs), bb:$dst)>;
+//greater or equal
+def : Pat<(brcond (i32 (setge GPRC:$lhs, immSExt17:$rhs)), bb:$dst),
+          (BEGT (CMPri GPRC:$lhs, immSExt17:$rhs), bb:$dst)>;
 
-// == imm
-def : Pat<(brcond (i32 (seteq GPRC:$lhs, immSExt16:$rhs)), bb:$dst),
-          (BEQ (CMPri GPRC:$lhs, immSExt16:$rhs), bb:$dst)>;
+def : Pat<(brcond (i32 (setge GPRC:$lhs, GPRC:$rhs)), bb:$dst),
+          (BEGT (CMPrr GPRC:$lhs, GPRC:$rhs), bb:$dst)>;
 
-// != reg
-def : Pat<(brcond (i32 (setne GPRC:$lhs, GPRC:$rhs)), bb:$dst),
-          (BNE (CMPrr GPRC:$lhs, GPRC:$rhs), bb:$dst)>;
-// == reg
+def : Pat<(brcond (i32 (setuge GPRC:$lhs, immSExt17:$rhs)), bb:$dst),
+          (BEGT (CMPri GPRC:$lhs, immSExt17:$rhs), bb:$dst)>;
+
+def : Pat<(brcond (i32 (setuge GPRC:$lhs, GPRC:$rhs)), bb:$dst),
+          (BEGT (CMPrr GPRC:$lhs, GPRC:$rhs), bb:$dst)>;
+
+def : Pat<(brcond (i32 (setoge GPRC:$lhs, immSExt17:$rhs)), bb:$dst),
+          (BEGT (CMPri GPRC:$lhs, immSExt17:$rhs), bb:$dst)>;
+
+def : Pat<(brcond (i32 (setoge GPRC:$lhs, GPRC:$rhs)), bb:$dst),
+          (BEGT (CMPrr GPRC:$lhs, GPRC:$rhs), bb:$dst)>;
+
+// less or equal
+def : Pat<(brcond (i32 (setle GPRC:$lhs, immSExt17:$rhs)), bb:$dst),
+          (BELT (CMPri GPRC:$lhs, immSExt17:$rhs), bb:$dst)>;
+
+def : Pat<(brcond (i32 (setle GPRC:$lhs, GPRC:$rhs)), bb:$dst),
+          (BELT (CMPrr GPRC:$lhs, GPRC:$rhs), bb:$dst)>;
+
+def : Pat<(brcond (i32 (setule GPRC:$lhs, immSExt17:$rhs)), bb:$dst),
+          (BELT (CMPri GPRC:$lhs, immSExt17:$rhs), bb:$dst)>;
+
+def : Pat<(brcond (i32 (setule GPRC:$lhs, GPRC:$rhs)), bb:$dst),
+          (BELT (CMPrr GPRC:$lhs, GPRC:$rhs), bb:$dst)>;
+
+def : Pat<(brcond (i32 (setole GPRC:$lhs, immSExt17:$rhs)), bb:$dst),
+          (BELT (CMPri GPRC:$lhs, immSExt17:$rhs), bb:$dst)>;
+
+def : Pat<(brcond (i32 (setole GPRC:$lhs, GPRC:$rhs)), bb:$dst),
+          (BELT (CMPrr GPRC:$lhs, GPRC:$rhs), bb:$dst)>;
+
+// equal
+def : Pat<(brcond (i32 (seteq GPRC:$lhs, immSExt17:$rhs)), bb:$dst),
+          (BEQ (CMPri GPRC:$lhs, immSExt17:$rhs), bb:$dst)>;
+
 def : Pat<(brcond (i32 (seteq GPRC:$lhs, GPRC:$rhs)), bb:$dst),
           (BEQ (CMPrr GPRC:$lhs, GPRC:$rhs), bb:$dst)>;
 
-// >= reg
-def : Pat<(brcond (i32 (setge GPRC:$lhs, GPRC:$rhs)), bb:$dst),
+def : Pat<(brcond (i32 (setueq GPRC:$lhs, immSExt17:$rhs)), bb:$dst),
+          (BEQ (CMPri GPRC:$lhs, immSExt17:$rhs), bb:$dst)>;
+
+def : Pat<(brcond (i32 (setueq GPRC:$lhs, GPRC:$rhs)), bb:$dst),
+          (BEQ (CMPrr GPRC:$lhs, GPRC:$rhs), bb:$dst)>;
+
+def : Pat<(brcond (i32 (setoeq GPRC:$lhs, immSExt17:$rhs)), bb:$dst),
+          (BEQ (CMPri GPRC:$lhs, immSExt17:$rhs), bb:$dst)>;
+
+def : Pat<(brcond (i32 (setoeq GPRC:$lhs, GPRC:$rhs)), bb:$dst),
+          (BEQ (CMPrr GPRC:$lhs, GPRC:$rhs), bb:$dst)>;
+
+//greater
+def : Pat<(brcond (i32 (setgt GPRC:$lhs, immSExt17:$rhs)), bb:$dst),
+          (BGT (CMPri GPRC:$lhs, immSExt17:$rhs), bb:$dst)>;
+
+def : Pat<(brcond (i32 (setgt GPRC:$lhs, GPRC:$rhs)), bb:$dst),
           (BGT (CMPrr GPRC:$lhs, GPRC:$rhs), bb:$dst)>;
 
-// >= imm
-def : Pat<(brcond (i32 (setge GPRC:$lhs, immSExt16:$rhs)), bb:$dst),
-          (BGT (CMPri GPRC:$lhs, immSExt16:$rhs), bb:$dst)>;
+def : Pat<(brcond (i32 (setugt GPRC:$lhs, immSExt17:$rhs)), bb:$dst),
+          (BGT (CMPri GPRC:$lhs, immSExt17:$rhs), bb:$dst)>;
 
-// <= reg
-def : Pat<(brcond (i32 (setle GPRC:$lhs, GPRC:$rhs)), bb:$dst),
-          (BELT (CMPrr GPRC:$rhs, GPRC:$lhs), bb:$dst)>;
-// <= imm
-def : Pat<(brcond (i32 (setle GPRC:$lhs, immSExt16:$rhs)), bb:$dst),
-          (BELT (CMPri GPRC:$rhs, immSExt16:$lhs), bb:$dst)>;
-
-// > reg
-def : Pat<(brcond (i32 (setge GPRC:$lhs, GPRC:$rhs)), bb:$dst),
+def : Pat<(brcond (i32 (setugt GPRC:$lhs, GPRC:$rhs)), bb:$dst),
           (BGT (CMPrr GPRC:$lhs, GPRC:$rhs), bb:$dst)>;
 
-// > imm
-def : Pat<(brcond (i32 (setge GPRC:$lhs, immSExt16:$rhs)), bb:$dst),
-          (BGT (CMPri GPRC:$lhs, immSExt16:$rhs), bb:$dst)>;
+def : Pat<(brcond (i32 (setogt GPRC:$lhs, immSExt17:$rhs)), bb:$dst),
+          (BGT (CMPri GPRC:$lhs, immSExt17:$rhs), bb:$dst)>;
 
-// < reg
+def : Pat<(brcond (i32 (setogt GPRC:$lhs, GPRC:$rhs)), bb:$dst),
+          (BGT (CMPrr GPRC:$lhs, GPRC:$rhs), bb:$dst)>;
+
+//less
+def : Pat<(brcond (i32 (setlt GPRC:$lhs, immSExt17:$rhs)), bb:$dst),
+          (BLT (CMPri GPRC:$lhs, immSExt17:$rhs), bb:$dst)>;
+
 def : Pat<(brcond (i32 (setlt GPRC:$lhs, GPRC:$rhs)), bb:$dst),
-          (BLT (CMPrr GPRC:$rhs, GPRC:$lhs), bb:$dst)>;
-// < imm
-def : Pat<(brcond (i32 (setlt GPRC:$lhs, immSExt16:$rhs)), bb:$dst),
-          (BLT (CMPri GPRC:$rhs, immSExt16:$lhs), bb:$dst)>;
+          (BLT (CMPrr GPRC:$lhs, GPRC:$rhs), bb:$dst)>;
 
+def : Pat<(brcond (i32 (setult GPRC:$lhs, immSExt17:$rhs)), bb:$dst),
+          (BLT (CMPri GPRC:$lhs, immSExt17:$rhs), bb:$dst)>;
+
+def : Pat<(brcond (i32 (setult GPRC:$lhs, GPRC:$rhs)), bb:$dst),
+          (BLT (CMPrr GPRC:$lhs, GPRC:$rhs), bb:$dst)>;
+
+def : Pat<(brcond (i32 (setolt GPRC:$lhs, immSExt17:$rhs)), bb:$dst),
+          (BLT (CMPri GPRC:$lhs, immSExt17:$rhs), bb:$dst)>;
+
+def : Pat<(brcond (i32 (setolt GPRC:$lhs, GPRC:$rhs)), bb:$dst),
+          (BLT (CMPrr GPRC:$lhs, GPRC:$rhs), bb:$dst)>;
+
+// not equal
+def : Pat<(brcond (i32 (setne GPRC:$lhs, immSExt17:$rhs)), bb:$dst),
+          (BNE (CMPri GPRC:$lhs, immSExt17:$rhs), bb:$dst)>;
+
+def : Pat<(brcond (i32 (setne GPRC:$lhs, GPRC:$rhs)), bb:$dst),
+          (BNE (CMPrr GPRC:$lhs, GPRC:$rhs), bb:$dst)>;
+
+def : Pat<(brcond (i32 (setune GPRC:$lhs, immSExt17:$rhs)), bb:$dst),
+          (BNE (CMPri GPRC:$lhs, immSExt17:$rhs), bb:$dst)>;
+
+def : Pat<(brcond (i32 (setune GPRC:$lhs, GPRC:$rhs)), bb:$dst),
+          (BNE (CMPrr GPRC:$lhs, GPRC:$rhs), bb:$dst)>;
+
+def : Pat<(brcond (i32 (setone GPRC:$lhs, immSExt17:$rhs)), bb:$dst),
+          (BNE (CMPri GPRC:$lhs, immSExt17:$rhs), bb:$dst)>;
+
+def : Pat<(brcond (i32 (setone GPRC:$lhs, GPRC:$rhs)), bb:$dst),
+          (BNE (CMPrr GPRC:$lhs, GPRC:$rhs), bb:$dst)>;
 
 def : Pat<(brcond GPRC:$cond, bb:$dst),
-          (BNE (CMPri GPRC:$cond, 0), bb:$dst)>;
+          (BNE (CMPri GPRC:$cond, 0), bb:$dst)>;  // if (!(A & B))
+// setcc patterns
+
+//greater or equal
+def : Pat<(setge GPRC:$lhs, immSExt17:$rhs),
+          (CMPri GPRC:$lhs, immSExt17:$rhs)>;
+
+def : Pat<(setge GPRC:$lhs, GPRC:$rhs),
+          (CMPrr GPRC:$lhs, GPRC:$rhs)>;
+
+def : Pat<(setuge GPRC:$lhs, immSExt17:$rhs),
+          (CMPri GPRC:$lhs, immSExt17:$rhs)>;
+
+def : Pat<(setuge GPRC:$lhs, GPRC:$rhs),
+          (CMPrr GPRC:$lhs, GPRC:$rhs)>;
+
+def : Pat<(setoge GPRC:$lhs, immSExt17:$rhs),
+          (CMPri GPRC:$lhs, immSExt17:$rhs)>;
+
+def : Pat<(setoge GPRC:$lhs, GPRC:$rhs),
+          (CMPrr GPRC:$lhs, GPRC:$rhs)>;
+
+// less or equal
+def : Pat<(setle GPRC:$lhs, immSExt17:$rhs),
+          (CMPri GPRC:$lhs, immSExt17:$rhs)>;
+
+def : Pat<(setle GPRC:$lhs, GPRC:$rhs),
+          (CMPrr GPRC:$lhs, GPRC:$rhs)>;
+
+def : Pat<(setule GPRC:$lhs, immSExt17:$rhs),
+          (CMPri GPRC:$lhs, immSExt17:$rhs)>;
+
+def : Pat<(setule GPRC:$lhs, GPRC:$rhs),
+          (CMPrr GPRC:$lhs, GPRC:$rhs)>;
+
+def : Pat<(setole GPRC:$lhs, immSExt17:$rhs),
+          (CMPri GPRC:$lhs, immSExt17:$rhs)>;
+
+def : Pat<(setole GPRC:$lhs, GPRC:$rhs),
+          (CMPrr GPRC:$lhs, GPRC:$rhs)>;
+
+// equal
+def : Pat<(seteq GPRC:$lhs, immSExt17:$rhs),
+          (CMPri GPRC:$lhs, immSExt17:$rhs)>;
+
+def : Pat<(seteq GPRC:$lhs, GPRC:$rhs),
+          (CMPrr GPRC:$lhs, GPRC:$rhs)>;
+
+def : Pat<(setueq GPRC:$lhs, immSExt17:$rhs),
+          (CMPri GPRC:$lhs, immSExt17:$rhs)>;
+
+def : Pat<(setueq GPRC:$lhs, GPRC:$rhs),
+          (CMPrr GPRC:$lhs, GPRC:$rhs)>;
+
+def : Pat<(setoeq GPRC:$lhs, immSExt17:$rhs),
+          (CMPri GPRC:$lhs, immSExt17:$rhs)>;
+
+def : Pat<(setoeq GPRC:$lhs, GPRC:$rhs),
+          (CMPrr GPRC:$lhs, GPRC:$rhs)>;
+
+//greater
+def : Pat<(setgt GPRC:$lhs, immSExt17:$rhs),
+          (CMPri GPRC:$lhs, immSExt17:$rhs)>;
+
+def : Pat<(setgt GPRC:$lhs, GPRC:$rhs),
+          (CMPrr GPRC:$lhs, GPRC:$rhs)>;
+
+def : Pat<(setugt GPRC:$lhs, immSExt17:$rhs),
+          (CMPri GPRC:$lhs, immSExt17:$rhs)>;
+
+def : Pat<(setugt GPRC:$lhs, GPRC:$rhs),
+          (CMPrr GPRC:$lhs, GPRC:$rhs)>;
+
+def : Pat<(setogt GPRC:$lhs, immSExt17:$rhs),
+          (CMPri GPRC:$lhs, immSExt17:$rhs)>;
+
+def : Pat<(setogt GPRC:$lhs, GPRC:$rhs),
+          (CMPrr GPRC:$lhs, GPRC:$rhs)>;
+
+//less
+def : Pat<(setlt GPRC:$lhs, immSExt17:$rhs),
+          (CMPri GPRC:$lhs, immSExt17:$rhs)>;
+
+def : Pat<(setlt GPRC:$lhs, GPRC:$rhs),
+          (CMPrr GPRC:$lhs, GPRC:$rhs)>;
+
+def : Pat<(setult GPRC:$lhs, immSExt17:$rhs),
+          (CMPri GPRC:$lhs, immSExt17:$rhs)>;
+
+def : Pat<(setult GPRC:$lhs, GPRC:$rhs),
+          (CMPrr GPRC:$lhs, GPRC:$rhs)>;
+
+def : Pat<(setolt GPRC:$lhs, immSExt17:$rhs),
+          (CMPri GPRC:$lhs, immSExt17:$rhs)>;
+
+def : Pat<(setolt GPRC:$lhs, GPRC:$rhs),
+          (CMPrr GPRC:$lhs, GPRC:$rhs)>;
+
+// not equal
+def : Pat<(setne GPRC:$lhs, immSExt17:$rhs),
+          (CMPri GPRC:$lhs, immSExt17:$rhs)>;
+
+def : Pat<(setne GPRC:$lhs, GPRC:$rhs),
+          (CMPrr GPRC:$lhs, GPRC:$rhs)>;
+
+def : Pat<(setune GPRC:$lhs, immSExt17:$rhs),
+          (CMPri GPRC:$lhs, immSExt17:$rhs)>;
+
+def : Pat<(setune GPRC:$lhs, GPRC:$rhs),
+          (CMPrr GPRC:$lhs, GPRC:$rhs)>;
+
+def : Pat<(setone GPRC:$lhs, immSExt17:$rhs),
+          (CMPri GPRC:$lhs, immSExt17:$rhs)>;
+
+def : Pat<(setone GPRC:$lhs, GPRC:$rhs),
+          (CMPrr GPRC:$lhs, GPRC:$rhs)>;
 
 //===----------------------------------------------------------------------===//
 // Floating Point Support
 //===----------------------------------------------------------------------
 
 include "CoffeeInstrFPU.td"
-
+include "CoffeeConMov.td"
 

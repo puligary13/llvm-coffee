@@ -186,7 +186,7 @@ SDNode* CoffeeDAGToDAGISel::Select(SDNode *N) {
         SDValue InFlag = N->getOperand(4);
         assert(N1.getOpcode() == ISD::BasicBlock);
         assert(N2.getOpcode() == ISD::Constant);
-        //assert(N3.getOpcode() == ISD::Register);
+        //assert(N3.getOpcode() == ISD::Register);  //integer case is not register
 
         ISD::CondCode cc = (ISD::CondCode)cast<ConstantSDNode>(N2)->getZExtValue();
 

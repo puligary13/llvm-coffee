@@ -31,7 +31,6 @@ enum NodeType {
     // Start the numbering where the builtin ops and target ops leave off.
     FIRST_NUMBER = ISD::BUILTIN_OP_END,
     RET,     // Return with a flag operand
-
     BRCOND,
     CMP,
     FPCMP,
@@ -40,7 +39,8 @@ enum NodeType {
     DynAlloc,
     MUL,
     MUL_64,
-    JmpLink //CALL
+    JmpLink, //CALL
+    CondMov
 };
 }
 
@@ -150,6 +150,9 @@ private:
     SDValue LowerBlockAddress(SDValue Op, SelectionDAG &DAG) const;
     SDValue LowerFRAMEADDR(SDValue Op, SelectionDAG &DAG) const;
     SDValue LowerBR_CC(SDValue Op, SelectionDAG &DAG) const;
+    SDValue LowerSELECT_CC(SDValue Op, SelectionDAG &DAG) const;
+    SDValue LowerSETCC(SDValue Op, SelectionDAG &DAG) const;
+    SDValue LowerSELECT(SDValue Op, SelectionDAG &DAG) const;
     SDValue LowerGlobalAddress(SDValue Op,SelectionDAG &DAG) const;
     SDValue getCoffeeCmp(SDValue LHS, SDValue RHS, SelectionDAG &DAG,
                                  DebugLoc dl) const;

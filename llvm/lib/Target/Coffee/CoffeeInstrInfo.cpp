@@ -240,24 +240,35 @@ void CoffeeInstrInfo::BuildCondBr(MachineBasicBlock &MBB,
 void CoffeeInstrInfo::copyPhysReg(MachineBasicBlock &MBB,
                                MachineBasicBlock::iterator I, DebugLoc DL,
                                unsigned DestReg, unsigned SrcReg,
-                               bool KillSrc) const {
+                                  bool KillSrc) const {
     unsigned Opc = 0;
 
     if (Coffee::GPRCRegClass.contains(DestReg)) { // Copy to CPU Reg.
-      if (Coffee::GPRCRegClass.contains(SrcReg))
-        Opc = Coffee::Mov;
+        if (Coffee::GPRCRegClass.contains(SrcReg))
+            Opc = Coffee::Mov;
     }
+
+    if (Coffee::FPRCRegClass.contains(DestReg)) { // Copy to CPU Reg.
+        if (Coffee::FPRCRegClass.contains(SrcReg))
+            Opc = Coffee::Mov;
+    }
+    Opc = Coffee::Mov;
+    // TODO: Is this correct
+
+    //if(Coffee::CRRCRegClass.contains(SrcReg))
+    //    return;
+
 
     assert(Opc && "Cannot copy registers");
 
     MachineInstrBuilder MIB = BuildMI(MBB, I, DL, get(Opc));
 
     if (DestReg)
-      MIB.addReg(DestReg, RegState::Define);
+        MIB.addReg(DestReg, RegState::Define);
 
     if (SrcReg)
-      MIB.addReg(SrcReg, getKillRegState(KillSrc));
-  }
+        MIB.addReg(SrcReg, getKillRegState(KillSrc));
+}
 
 
 static MachineMemOperand* GetMemOperand(MachineBasicBlock &MBB, int FI,

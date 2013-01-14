@@ -245,6 +245,7 @@ class FFR2P_CMP_C<bits<6> op, string opstr, bits<2> co,
   FFR_C<op, (outs CRRC:$fd), (ins RC:$fs, RC:$ft),
       !strconcat(opstr, copro, "\t$fd,\t$fs,\t$ft"),
       [(set CRRC:$fd, (OpNode RC:$fs, RC:$ft))]> {
+
       bits<5> fd;
       bits<5> ft;
       bits<5> fs;
@@ -253,6 +254,8 @@ class FFR2P_CMP_C<bits<6> op, string opstr, bits<2> co,
       let Inst{20-16} = ft;
       let Inst{15-11} = fs;
       let Inst{10-6} = fd;
+
+      let hasDelaySlot = 1;
 }
 
 

@@ -327,12 +327,13 @@ getMachineOpValue(const MCInst &MI, const MCOperand &MO,
 unsigned
 CoffeeMCCodeEmitter::getMemEncoding(const MCInst &MI, unsigned OpNo,
                                   SmallVectorImpl<MCFixup> &Fixups) const {
-  // Base register is encoded in bits 20-16, offset is encoded in bits 15-0.
   assert(MI.getOperand(OpNo).isReg());
-  unsigned RegBits = getMachineOpValue(MI, MI.getOperand(OpNo),Fixups) << 16;
-  unsigned OffBits = getMachineOpValue(MI, MI.getOperand(OpNo+1), Fixups);
+  // register 0-4
+  unsigned RegBits = getMachineOpValue(MI, MI.getOperand(OpNo),Fixups);
+  // imm 5-19
+  unsigned OffBits = getMachineOpValue(MI, MI.getOperand(OpNo+1), Fixups)<<5;
 
-  return (OffBits & 0xFFFF) | RegBits;
+  return (OffBits & 0xFFFE0) | (RegBits & 0x1F);
 }
 
 unsigned
