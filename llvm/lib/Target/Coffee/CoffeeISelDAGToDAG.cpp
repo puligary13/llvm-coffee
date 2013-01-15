@@ -54,6 +54,10 @@ public:
     //Complex Pattern selectors
     bool SelectAddr(SDNode *Parent, SDValue N, SDValue &Base, SDValue &Offset);
 
+    SDNode* SelectCMOVOp(SDNode *N);
+
+    SDNode *SelectBRCONDOp(SDNode *N);
+
     SDNode* SelectMULT(SDNode *N, DebugLoc dl);
 
     /// getI32Imm - Return a target constant of type i32 with the specified
@@ -166,99 +170,160 @@ SDNode* CoffeeDAGToDAGISel::Select(SDNode *N) {
     switch (N->getOpcode()) {
     default: break;
 
-    case COFFEEISD::BRCOND: {
-        // Pattern: (ARMbrcond:void (bb:Other):$dst, (imm:i32):$cc)
-        // Emits: (Bcc:void (bb:Other):$dst, (imm:i32):$cc)
-        // Pattern complexity = 6  cost = 1  size = 0
+    case COFFEEISD::BRCOND:
+        return SelectBRCONDOp(N);
 
-        // Pattern: (ARMbrcond:void (bb:Other):$dst, (imm:i32):$cc)
-        // Emits: (tBcc:void (bb:Other):$dst, (imm:i32):$cc)
-        // Pattern complexity = 6  cost = 1  size = 0
+    case COFFEEISD::CondMov:
+         return SelectCMOVOp(N);
 
-        // Pattern: (ARMbrcond:void (bb:Other):$dst, (imm:i32):$cc)
-        // Emits: (t2Bcc:void (bb:Other):$dst, (imm:i32):$cc)
-        // Pattern complexity = 6  cost = 1  size = 0
-
-        SDValue Chain = N->getOperand(0);
-        SDValue N1 = N->getOperand(1);
-        SDValue N2 = N->getOperand(2);
-        SDValue N3 = N->getOperand(3);
-        SDValue InFlag = N->getOperand(4);
-        assert(N1.getOpcode() == ISD::BasicBlock);
-        assert(N2.getOpcode() == ISD::Constant);
-        //assert(N3.getOpcode() == ISD::Register);  //integer case is not register
-
-        ISD::CondCode cc = (ISD::CondCode)cast<ConstantSDNode>(N2)->getZExtValue();
-
-        unsigned Opc = 0;
-        switch (cc) {
-        default:
-            llvm_unreachable("coffee:: unexpected condition code");
-            break;
-        case ISD::SETEQ:
-        case ISD::SETUEQ:
-        case ISD::SETOEQ:
-            Opc = Coffee::BEQ;
-            break;
-        case ISD::SETGT:
-        case ISD::SETUGT:
-        case ISD::SETOGT:
-            Opc = Coffee::BGT;
-            break;
-        case ISD::SETGE:
-        case ISD::SETUGE:
-        case ISD::SETOGE:
-            Opc = Coffee::BEGT;
-            break;
-        case ISD::SETLT:
-        case ISD::SETULT:
-        case ISD::SETOLT:
-            Opc = Coffee::BLT;
-            break;
-        case ISD::SETLE:
-        case ISD::SETULE:
-        case ISD::SETOLE:
-            Opc = Coffee::BELT;
-            break;
-        case ISD::SETNE:
-        case ISD::SETUNE:
-        case ISD::SETONE:
-            Opc = Coffee::BNE;
-            break;
-
-        }
-
-        SDValue Ops[] = { N3, N1, Chain, InFlag };
-        SDNode *ResNode = CurDAG->getMachineNode(Opc, dl, MVT::Other,
-                                                 MVT::Glue, Ops, 4);
-        Chain = SDValue(ResNode, 0);
-        if (N->getNumValues() == 2) {
-            int test = 1;
-        }
-        ReplaceUses(SDValue(N, 0),
-                    SDValue(Chain.getNode(), Chain.getResNo()));
-        return NULL;
-
-    }
-        break;
-        // guoqing: we don't do anything to ISD::MUL as the muls muli instruction
-        // will put the lo to destination register automatically
-
-        // guoqing: these are meant for handling hi part
     case ISD::MULHS:
     case ISD::MULHU: {
         if (NodeTy == MVT::i32)
             return SelectMULT(N, dl);
         else
             llvm_unreachable("coffee: nodetype for mulhs is not i32");
-
-
     }
         break;
     }
 
     return SelectCode(N);
 }
+
+
+SDNode *CoffeeDAGToDAGISel::SelectBRCONDOp(SDNode *N) {
+
+    SDValue Chain = N->getOperand(0); // Chain
+    SDValue N1 = N->getOperand(1); // Destination
+    SDValue N2 = N->getOperand(2); // CondCode as constant
+    SDValue N3 = N->getOperand(3); // CC regsiter to check --> CR0
+    SDValue InFlag = N->getOperand(4); // glue
+    assert(N1.getOpcode() == ISD::BasicBlock);
+    assert(N2.getOpcode() == ISD::Constant);
+    assert(N3.getOpcode() == ISD::Register);
+
+    DebugLoc dl = N->getDebugLoc();
+
+    ISD::CondCode cc = (ISD::CondCode)cast<ConstantSDNode>(N2)->getZExtValue();
+
+    // The main logic here follows ARM implementation but unlike ARM,
+    // Coffee has dedicated branch instructions for each situations while
+    // ARM has one instruction which take CondCode as operands.
+    unsigned Opc = 0;
+    switch (cc) {
+    default:
+        llvm_unreachable("coffee:: unexpected condition code");
+        break;
+    case ISD::SETEQ:
+    case ISD::SETUEQ:
+    case ISD::SETOEQ:
+        Opc = Coffee::BEQ;
+        break;
+    case ISD::SETGT:
+    case ISD::SETUGT:
+    case ISD::SETOGT:
+        Opc = Coffee::BGT;
+        break;
+    case ISD::SETGE:
+    case ISD::SETUGE:
+    case ISD::SETOGE:
+        Opc = Coffee::BEGT;
+        break;
+    case ISD::SETLT:
+    case ISD::SETULT:
+    case ISD::SETOLT:
+        Opc = Coffee::BLT;
+        break;
+    case ISD::SETLE:
+    case ISD::SETULE:
+    case ISD::SETOLE:
+        Opc = Coffee::BELT;
+        break;
+    case ISD::SETNE:
+    case ISD::SETUNE:
+    case ISD::SETONE:
+        Opc = Coffee::BNE;
+        break;
+    }
+
+    SDValue Ops[] = { N3, N1, Chain, InFlag };
+
+    // TODO: do we need output glue here ?
+    SDNode *ResNode = CurDAG->getMachineNode(Opc, dl, MVT::Other,
+                                             MVT::Glue, Ops, 4);
+
+    /***NOTE**/
+    // Is replaceUses function meant for Chain Node ?
+
+    Chain = SDValue(ResNode, 0);
+    ReplaceUses(SDValue(N, 0),
+                SDValue(Chain.getNode(), Chain.getResNo()));
+    return NULL;
+
+}
+
+
+SDNode *CoffeeDAGToDAGISel::SelectCMOVOp(SDNode *N) {
+    EVT VT = N->getValueType(0);
+    SDValue FalseVal = N->getOperand(0);
+    SDValue TrueVal  = N->getOperand(1);
+    SDValue CC = N->getOperand(2);     // CondCode as constant
+    SDValue CCR = N->getOperand(3);    // CR0 register
+    SDValue InFlag = N->getOperand(4); //glue
+
+    DebugLoc dl = N->getDebugLoc();
+
+    assert(CC.getOpcode() == ISD::Constant);
+    assert(CCR.getOpcode() == ISD::Register);
+
+    ISD::CondCode CCVal =
+      (ISD::CondCode)cast<ConstantSDNode>(CC)->getZExtValue();
+
+    unsigned Opc = 0;
+    switch (CCVal) {
+    default:
+        llvm_unreachable("coffee:: unexpected condition code");
+        break;
+    case ISD::SETEQ:
+    case ISD::SETUEQ:
+    case ISD::SETOEQ:
+        Opc = (VT == MVT::i32) ? Coffee::CMov_EQ : Coffee::FPCMov_EQ;
+        break;
+    case ISD::SETGT:
+    case ISD::SETUGT:
+    case ISD::SETOGT:
+       Opc = (VT == MVT::i32) ? Coffee::CMov_GT : Coffee::FPCMov_GT;
+        break;
+    case ISD::SETGE:
+    case ISD::SETUGE:
+    case ISD::SETOGE:
+        Opc = (VT == MVT::i32) ? Coffee::CMov_EGT : Coffee::FPCMov_EGT;
+        break;
+    case ISD::SETLT:
+    case ISD::SETULT:
+    case ISD::SETOLT:
+        Opc = (VT == MVT::i32) ? Coffee::CMov_LT : Coffee::FPCMov_LT;
+        break;
+    case ISD::SETLE:
+    case ISD::SETULE:
+    case ISD::SETOLE:
+        Opc = (VT == MVT::i32) ? Coffee::CMov_ELT : Coffee::FPCMov_ELT;
+        break;
+    case ISD::SETNE:
+    case ISD::SETUNE:
+    case ISD::SETONE:
+        Opc = (VT == MVT::i32) ? Coffee::CMov_NE : Coffee::FPCMov_NE;
+        break;
+    }
+
+    /****NOTE***/
+    // Unlike BRCOND, we don't have chain here. This is according to
+    // the definition of ISD::SELECT_CC that we customized to
+    // COFFEEISD::CondMov
+
+    SDValue Ops[] = { TrueVal, FalseVal, CCR, InFlag };
+    return CurDAG->SelectNodeTo(N, Opc, (VT == MVT::i32) ? MVT::i32 : MVT::f32, Ops, 4);
+
+  }
 
 /// Select multiply instructions.
 SDNode*

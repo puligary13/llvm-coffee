@@ -281,8 +281,7 @@ void Filler::insertDefsUses(MachineBasicBlock::iterator MI,
     // clobbered registers of branch instructions.
     E = MI->getNumOperands();
     for (; I != E; ++I)
-        llvm_unreachable("coffee: filler");
-      //insertDefUse(MI->getOperand(I), RegDefs, RegUses, Mips::AT);
+      insertDefUse(MI->getOperand(I), RegDefs, RegUses);
 }
 
 //returns true if the Reg or its alias is in the RegSet.

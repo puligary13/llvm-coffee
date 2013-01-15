@@ -170,8 +170,7 @@ CoffeeTargetLowering::CoffeeTargetLowering(CoffeeTargetMachine &TM)
     // AddPromotedToType();
 
     // Operations need customization
-    //setOperationAction(ISD::BR_CC,     MVT::i32,   Custom);
-    //setOperationAction(ISD::BR_CC,     MVT::f32,   Custom);
+
     setOperationAction(ISD::GlobalAddress,      MVT::i32,   Custom);
     setOperationAction(ISD::BlockAddress,       MVT::i32,   Custom);
     setOperationAction(ISD::GlobalTLSAddress,   MVT::i32,   Custom);
@@ -180,31 +179,56 @@ CoffeeTargetLowering::CoffeeTargetLowering(CoffeeTargetMachine &TM)
     setOperationAction(ISD::ADD,  MVT::i32, Custom);
 
 
-    //***IMPORTANT***/
-    // Expanding SETCC would convert it to SELECT_CC
-    // we customized SELECT_CC to SETCC & SELECT as we defined setcc&select
-    // pair instructions in td files.
-    // we MUST NOT expand SETCC otherwise we have a loop.
+    // Based on the instruction set of COFFEE, we need to do the following
+    // legalization:
 
+    // SETCC -> expand to SELECT_CC
+    // SELECT -> expand to SELECT_CC
+    // BRCOND -> expand to BR_CC
+    // Try to combine SELECT with SETCC to form SELECT_CC
 
-    // setcc pattern in td should cover this
-    //setOperationAction(ISD::SETCC,     MVT::i32, Expand);
-    //setOperationAction(ISD::SETCC,     MVT::f32, Expand);
+    setOperationAction(ISD::SETCC,     MVT::i32, Expand);
+    setOperationAction(ISD::SETCC,     MVT::f32, Expand);
+    setOperationAction(ISD::SELECT,    MVT::i32, Expand);
+    setOperationAction(ISD::SELECT,    MVT::f32, Expand);
 
-    // select patterns in td should cover this
-    //setOperationAction(ISD::SELECT,    MVT::i32, Custom);
-    //setOperationAction(ISD::SELECT,    MVT::f32, Custom);
+    //TODO: is this needed ?
+    //setTargetDAGCombine(ISD::SELECT);
 
-    // branch pattern in td should cover this
-    //setOperationAction(ISD::BRCOND,    MVT::Other, Expand);
+    //***note***
+    //MVT::Other presents Chain output
+    //What MVT to put here depends on the definition of ISD::XXX in
+    //TargetSelectionDAG.td, for instace, the ISD::BRCOND is defined as
+    // below:
+    //def SDTBrcond : SDTypeProfile<0, 2, [       // brcond
+    //  SDTCisInt<0>, SDTCisVT<1, OtherVT>
+    //]>;
+    // which indicate there is NO value output for this node so we only need to
+    // handle chain output as chain output and glue are not counted as output
+    // number. On the other hand, if there is value output besides chain output,
+    // then we should handle the legal type (the type matchs register type which
+    // is calculated from function AddRegisterType())
 
+    setOperationAction(ISD::BRCOND,    MVT::Other, Expand);
+
+    // SELECT_CC & BR_CC will be customized
+    // we will do this conversion in C++ as we need to use glue
+    // to make sure there is no instruction inserted in between COFFEE's
+    // CMP & BRANCH instructions
+
+    // ***note***
     // Branch & setcc pair will be combined to br_cc if BR_CC is defined
-    // as legal or customized, we set it as Expand for now
-    setOperationAction(ISD::BR_CC,             MVT::Other, Expand);
+    // as legal or customized
 
-    // Customize SELECT_CC -> SETCC & SELECT
+    setOperationAction(ISD::BR_CC,     MVT::i32,   Custom);
+    setOperationAction(ISD::BR_CC,     MVT::f32,   Custom);
     setOperationAction(ISD::SELECT_CC, MVT::i32, Custom);
     setOperationAction(ISD::SELECT_CC, MVT::f32, Custom);
+
+    // *****NOTE*****
+    // Don't expand SETCC and then customize SELECT_CC to SETCC&SELECT as
+    // expanding SETCC would convert it to SELECT_CC which will cause loop
+    // with above mentioned way of customization.
 
 
     //fp and integer both use GPR register so no need for BITCAST
@@ -219,7 +243,6 @@ CoffeeTargetLowering::CoffeeTargetLowering(CoffeeTargetMachine &TM)
     setOperationAction(ISD::UINT_TO_FP,        MVT::i32,   Expand);
     setOperationAction(ISD::FP_TO_UINT,        MVT::i32,   Expand);
     setOperationAction(ISD::BR_JT,             MVT::Other, Expand);
-    setOperationAction(ISD::SELECT_CC,         MVT::Other, Expand);
     setOperationAction(ISD::FCOPYSIGN,          MVT::f32,   Expand);
     setOperationAction(ISD::MEMBARRIER,         MVT::Other, Expand);
     setOperationAction(ISD::ATOMIC_FENCE,       MVT::Other, Expand);
@@ -231,6 +254,8 @@ CoffeeTargetLowering::CoffeeTargetLowering(CoffeeTargetMachine &TM)
     setOperationAction(ISD::UREM,              MVT::i32, Expand);
     setOperationAction(ISD::BR_JT,             MVT::Other, Expand);
     setOperationAction(ISD::SIGN_EXTEND_INREG, MVT::i1,    Expand);
+    setOperationAction(ISD::SIGN_EXTEND_INREG, MVT::i8,    Expand);
+    setOperationAction(ISD::SIGN_EXTEND_INREG, MVT::i16,    Expand);
     setOperationAction(ISD::CTPOP,             MVT::i32,   Expand);
     setOperationAction(ISD::CTTZ,              MVT::i32,   Expand);
     setOperationAction(ISD::CTTZ_ZERO_UNDEF,   MVT::i32,   Expand);
@@ -267,8 +292,6 @@ CoffeeTargetLowering::CoffeeTargetLowering(CoffeeTargetMachine &TM)
     // setTargetDAGCombine(ISD::SUBE);
     // setTargetDAGCombine(ISD::SDIVREM);
     // setTargetDAGCombine(ISD::UDIVREM);
-
-    setTargetDAGCombine(ISD::SELECT);
     // setTargetDAGCombine(ISD::AND);
     // setTargetDAGCombine(ISD::OR);
 
@@ -489,8 +512,9 @@ const {
     case ISD::OR:
         llvm_unreachable("coffeeisellowering.cpp::performDAGCombine");
         break;
-     case ISD::SELECT:
-        return PerformSELECTCombine(N, DAG, DCI);
+    // TODO: is this needed ?
+    // case ISD::SELECT:
+        //return PerformSELECTCombine(N, DAG, DCI);
     }
 
     return SDValue();
@@ -934,7 +958,7 @@ SDValue CoffeeTargetLowering::LowerOperation(SDValue Op, SelectionDAG &DAG) cons
     case ISD::BlockAddress: return LowerBlockAddress(Op, DAG);
     case ISD::JumpTable: return     LowerJumpTable(Op, DAG);
     case ISD::GlobalAddress: return LowerGlobalAddress(Op, DAG);
-    //case ISD::BR_CC: llvm_unreachable("coffee: lowerBR_CC");//return LowerBR_CC(Op, DAG);
+    case ISD::BR_CC: return LowerBR_CC(Op, DAG);
     case ISD::ADD: return LowerADD(Op, DAG);
     // TODO: I am not sure, comment out for now
     //case ISD::BITCAST: return LowerBITCAST(Op, DAG);
@@ -950,16 +974,27 @@ SDValue CoffeeTargetLowering::LowerOperation(SDValue Op, SelectionDAG &DAG) cons
 }
 
 SDValue CoffeeTargetLowering::
-LowerSELECT_CC(SDValue Op, SelectionDAG &DAG) const
-{
-  DebugLoc DL = Op.getDebugLoc();
-  EVT Ty = Op.getOperand(0).getValueType();
-  SDValue Cond = DAG.getNode(ISD::SETCC, DL, getSetCCResultType(Ty),
-                             Op.getOperand(0), Op.getOperand(1),
-                             Op.getOperand(4));
+LowerSELECT_CC(SDValue Op, SelectionDAG &DAG) const {
+    EVT VT = Op.getValueType();
+    SDValue LHS = Op.getOperand(0);
+    SDValue RHS = Op.getOperand(1);
+    ISD::CondCode CondCode = cast<CondCodeSDNode>(Op.getOperand(4))->get();
+    SDValue TrueVal = Op.getOperand(2);
+    SDValue FalseVal = Op.getOperand(3);
+    DebugLoc dl = Op.getDebugLoc();
 
-  return DAG.getNode(ISD::SELECT, DL, Op.getValueType(), Cond, Op.getOperand(2),
-                     Op.getOperand(3));
+    if (LHS.getValueType() == MVT::i32 || LHS.getValueType() == MVT::f32) {
+        SDValue CC = DAG.getConstant(CondCode, MVT::i32);
+        SDValue Cmp = getCoffeeCmp(LHS, RHS, DAG, dl); // condition register
+
+        SDValue glue = Cmp.getValue(0);
+        // We decidedd to use only one CC registier which is CR0
+        SDValue ccreg = DAG.getRegister(Coffee::CR0, MVT::i32);
+
+        return DAG.getNode(COFFEEISD::CondMov, dl, VT, FalseVal, TrueVal, CC, ccreg, glue);
+    } else {
+        llvm_unreachable("coffee: LowerSELECT_CC unsupported type");
+    }
 }
 
 
@@ -1173,21 +1208,9 @@ SDValue CoffeeTargetLowering::LowerBR_CC(SDValue Op, SelectionDAG &DAG) const {
         SDValue CC = DAG.getConstant(CondCode, MVT::i32);
         SDValue cmp = getCoffeeCmp(LHS, RHS, DAG, dl); // condition register
 
-        SDValue glue;
-        SDValue ccreg;
-        if (LHS.getValueType() == MVT::i32) {
-            glue  = cmp.getValue(1);
-            ccreg = cmp.getValue(0);
-        } else {
-            glue = cmp.getValue(1);
-            ccreg = cmp.getValue(0);
-            //ccreg = DAG.getRegister(Coffee::CR0, MVT::i32);
-        }
-        // TODO:
-        // we hardcode the CC reg to CR0 in td files for compare
-        // according to old gcc compiler. We need to revisit this
-        // for future needes
-
+        SDValue glue = cmp.getValue(0);
+        // We decidedd to use only one CC registier which is CR0
+        SDValue ccreg = DAG.getRegister(Coffee::CR0, MVT::i32);
 
         return DAG.getNode(COFFEEISD::BRCOND, dl, MVT::Other,
                            Chain, Dest, CC, ccreg, glue);
@@ -1230,10 +1253,10 @@ CoffeeTargetLowering::getCoffeeCmp(SDValue LHS, SDValue RHS,
     SDVTList VTLs;
     unsigned Opcode;
     if (LHS.getValueType() == MVT::i32) {
-        VTLs = DAG.getVTList(MVT::i32, MVT::Glue); // CRRC, glue
+        VTLs = DAG.getVTList(MVT::Glue); //glue
         Opcode = COFFEEISD::CMP;
     } else if (LHS.getValueType() == MVT::f32) {
-        VTLs = DAG.getVTList(MVT::i32, MVT::Glue); // CRRC, glue //actually it is FPRC but it is not used
+        VTLs = DAG.getVTList(MVT::Glue); // glue
         Opcode = COFFEEISD::FPCMP;
     } else {
         llvm_unreachable("Coffee: Coffee cmp unsupported type");
@@ -1248,7 +1271,7 @@ CoffeeTargetLowering::CoffeeCC::CoffeeCC(CallingConv::ID CallConv, bool IsVarArg
                                          CCState &Info) : CCInfo(Info) {
     UseRegsForByval = true;
 
-    if (CallConv != CallingConv::C)
+    if (CallConv != CallingConv::C && CallConv != CallingConv::Fast)
         llvm_unreachable("Coffee: the call convention is not C");
 
     RegSize = 4;

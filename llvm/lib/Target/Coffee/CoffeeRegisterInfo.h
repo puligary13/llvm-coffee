@@ -50,6 +50,8 @@ public:
 
   BitVector getReservedRegs(const MachineFunction &MF) const;
 
+  const TargetRegisterClass *getCrossCopyRegClass(const TargetRegisterClass *RC) const;
+
   virtual bool requiresRegisterScavenging(const MachineFunction &MF) const;
 
   bool requiresFrameIndexScavenging(const MachineFunction &MF) const;

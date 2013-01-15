@@ -74,11 +74,21 @@ BitVector CoffeeRegisterInfo::getReservedRegs(const MachineFunction &MF) const {
       Coffee::SP
     };
 
+    static const uint16_t ReservedCCRegs[] = {
+      //TODO: need to recheck this
+      Coffee::CR0
+    };
+
+
+
     BitVector Reserved(getNumRegs());
     typedef TargetRegisterClass::const_iterator RegIter;
 
     for (unsigned I = 0; I < array_lengthof(ReservedCPURegs); ++I)
       Reserved.set(ReservedCPURegs[I]);
+
+    for (unsigned I = 0; I < array_lengthof(ReservedCCRegs); ++I)
+      Reserved.set(ReservedCCRegs[I]);
 
     // Reserve FP if this function should have a dedicated frame pointer register.
     if (MF.getTarget().getFrameLowering()->hasFP(MF)) {
@@ -97,6 +107,14 @@ bool
 CoffeeRegisterInfo::requiresRegisterScavenging(const MachineFunction &MF) const {
   return true;
 }
+
+const TargetRegisterClass *
+CoffeeRegisterInfo::getCrossCopyRegClass(const TargetRegisterClass *RC) const {
+  if (RC == &Coffee::CRRCRegClass)
+    return 0;  // Can't copy CRRC registers.
+  return RC;
+}
+
 
 bool CoffeeRegisterInfo::
 requiresFrameIndexScavenging(const MachineFunction &MF) const {

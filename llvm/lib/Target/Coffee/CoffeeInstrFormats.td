@@ -118,6 +118,31 @@ class FI<bits<6> op, dag outs, dag ins, string asmstr, list<dag> pattern,
 class CMPI<bits<6> op, dag outs, dag ins, string asmstr, list<dag> pattern,
 InstrItinClass itin>: InstCoffee<outs, ins, asmstr, pattern, itin, FrmI>
 {
+
+  bits<5> rt;
+  bits<17> imm17;
+  let Opcode = op;
+  let Inst{24-22} = 0b000;
+  let Inst{9-5} = rt;
+  let Inst{21-10} = imm17{11-0};
+  let Inst{4-0} = imm17{16-12};
+}
+
+class CMPR<bits<6> op, dag outs, dag ins, string asmstr, list<dag> pattern,
+InstrItinClass itin>: InstCoffee<outs, ins, asmstr, pattern, itin, FrmI>
+{
+
+  bits<5> rt;
+  bits<5> rs;
+  let Opcode = op;
+  let Inst{24-22} = 0b000;
+  let Inst{9-5} = rt;
+  let Inst{14-10} = rs;
+}
+
+class CMPI_ASM<bits<6> op, dag outs, dag ins, string asmstr, list<dag> pattern,
+InstrItinClass itin>: InstCoffee<outs, ins, asmstr, pattern, itin, FrmI>
+{
   bits<3> rd;
   bits<5> rt;
   bits<17> imm17;
@@ -128,7 +153,7 @@ InstrItinClass itin>: InstCoffee<outs, ins, asmstr, pattern, itin, FrmI>
   let Inst{4-0} = imm17{16-12};
 }
 
-class CMPR<bits<6> op, dag outs, dag ins, string asmstr, list<dag> pattern,
+class CMPR_ASM<bits<6> op, dag outs, dag ins, string asmstr, list<dag> pattern,
 InstrItinClass itin>: InstCoffee<outs, ins, asmstr, pattern, itin, FrmI>
 {
   bits<3> rd;
@@ -242,9 +267,28 @@ class FFR2P_C<bits<6> op, string opstr, bits<2> co,
 
 class FFR2P_CMP_C<bits<6> op, string opstr, bits<2> co,
             string copro, RegisterClass RC, SDNode OpNode> :
-  FFR_C<op, (outs CRRC:$fd), (ins RC:$fs, RC:$ft),
+  FFR_C<op, (outs), (ins RC:$fs, RC:$ft),
+      !strconcat(opstr, copro, "\t$fs,\t$ft"),
+      [(OpNode RC:$fs, RC:$ft)]> {
+
+      bits<5> ft;
+      bits<5> fs;
+
+      let Inst{25-24} = co;
+      let Inst{20-16} = ft;
+      let Inst{15-11} = fs;
+      // the result is saved in CC register
+      // let Inst{10-6} = 0b00000;
+
+      let Defs = [CR0];
+      let hasDelaySlot = 1;
+}
+
+class FFR2P_CMP_C_ASM<bits<6> op, string opstr, bits<2> co,
+            string copro, RegisterClass RC, SDNode OpNode> :
+  FFR_C<op, (outs CRRC:$fd), (ins CRRC:$fd, RC:$fs, RC:$ft),
       !strconcat(opstr, copro, "\t$fd,\t$fs,\t$ft"),
-      [(set CRRC:$fd, (OpNode RC:$fs, RC:$ft))]> {
+      []> {
 
       bits<5> fd;
       bits<5> ft;

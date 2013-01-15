@@ -24,7 +24,7 @@ include "CoffeeInstrFormats.td"
 def SDT_CoffeeJmpLink      : SDTypeProfile<0, 1, [SDTCisVT<0, iPTR>]>;
 def SDT_COFFEECallSeqStart : SDCallSeqStart<[ SDTCisVT<0, i32> ]>;
 def SDT_COFFEECallSeqEnd   : SDCallSeqEnd<[ SDTCisVT<0, i32>, SDTCisVT<1, i32> ]>;
-def SDT_COFFEECmp     : SDTypeProfile<1, 2, [SDTCisSameAs<0, 1>]>;
+def SDT_COFFEECmp     : SDTypeProfile<0, 2, [SDTCisSameAs<0, 1>]>;
 def SDT_COFFEERet          : SDTypeProfile<0, 1, [SDTCisInt<0>]>;
 def SDT_COFFEEDynAlloc    : SDTypeProfile<1, 1, [SDTCisVT<0, iPTR>,
                                                SDTCisSameAs<0, 1>]>;
@@ -265,16 +265,18 @@ class CBranch<bits<6> op, string instr_asm, PatFrag cond_op>:
   let hasDelaySlot = 1;
 }
 
-let isCompare = 1 in {
+// Setting Defs is necessary for instruction has no output register defined
+
+let isCompare = 1, Defs = [CR0] in {
 multiclass I_cmp<PatFrag opnode> {
-  def ri : CMPI<0b110111, (outs CRRC:$rd ), (ins GPRC:$rt, simm17_cmp:$imm17),
-               "cmpi\t$rd\t$rt,\t$imm17", [(set CRRC:$rd, (opnode GPRC:$rt, immSExt17:$imm17))], IIAlu>;
+  def ri : CMPI<0b110111, (outs), (ins GPRC:$rt, simm17_cmp:$imm17),
+               "cmpi\tc0\t$rt,\t$imm17", [(opnode GPRC:$rt, immSExt17:$imm17)], IIAlu>;
 
-  def riu : CMPI<0b110111, (outs CRRC:$rd ), (ins GPRC:$rt, uimm17_cmp:$imm17),
-             "cmpi\t$rd\t$rt,\t$imm17", [(set CRRC:$rd, (opnode GPRC:$rt, immZExt17:$imm17))], IIAlu>;
+  def riu : CMPI<0b110111, (outs), (ins GPRC:$rt, uimm17_cmp:$imm17),
+             "cmpi\tc0\t$rt,\t$imm17", [(opnode GPRC:$rt, immZExt17:$imm17)], IIAlu>;
 
-  def rr : CMPR<0b011001, (outs CRRC:$rd), (ins GPRC:$rt, GPRC:$rs),
-               "cmp\t$rd\t$rt,\t$rs", [(set CRRC:$rd, (opnode GPRC:$rt, GPRC:$rs))], IIAlu>;
+  def rr : CMPR<0b011001, (outs), (ins GPRC:$rt, GPRC:$rs),
+               "cmp\tc0\t$rt,\t$rs", [(opnode GPRC:$rt, GPRC:$rs)], IIAlu>;
 }
 }
 
@@ -704,6 +706,18 @@ def EXH    : ExhF<0b110001>;
 def SEXTI  : SextiF<0b101011>;
 
 
+
+def CMPri_ASM : CMPI_ASM<0b110111, (outs CRRC:$rd), (ins GPRC:$rt, simm17_cmp:$imm17),
+               "cmpi\t$rd\t$rt,\t$imm17", [], IIAlu>;
+
+def CMPriu_ASM : CMPI_ASM<0b110111, (outs CRRC:$rd), (ins GPRC:$rt, uimm17_cmp:$imm17),
+             "cmpi\t$rd\t$rt,\t$imm17", [], IIAlu>;
+
+def CMPrr_ASM : CMPR_ASM<0b011001, (outs CRRC:$rd), (ins GPRC:$rt, GPRC:$rs),
+               "cmp\t$rd\t$rt,\t$rs", [], IIAlu>;
+
+
+
 // pseudo instruction definition
 
 // Return LR.
@@ -829,7 +843,7 @@ def : Pat<(CoffeeJmpLink (i32 texternalsym:$dst)),
 // brcond patterns
 
 //greater or equal
-def : Pat<(brcond (i32 (setge GPRC:$lhs, immSExt17:$rhs)), bb:$dst),
+/*def : Pat<(brcond (i32 (setge GPRC:$lhs, immSExt17:$rhs)), bb:$dst),
           (BEGT (CMPri GPRC:$lhs, immSExt17:$rhs), bb:$dst)>;
 
 def : Pat<(brcond (i32 (setge GPRC:$lhs, GPRC:$rhs)), bb:$dst),
@@ -940,10 +954,10 @@ def : Pat<(brcond (i32 (setone GPRC:$lhs, immSExt17:$rhs)), bb:$dst),
           (BNE (CMPri GPRC:$lhs, immSExt17:$rhs), bb:$dst)>;
 
 def : Pat<(brcond (i32 (setone GPRC:$lhs, GPRC:$rhs)), bb:$dst),
-          (BNE (CMPrr GPRC:$lhs, GPRC:$rhs), bb:$dst)>;
+          (BNE (CMPrr GPRC:$lhs, GPRC:$rhs), bb:$dst)>;*/
 
-def : Pat<(brcond GPRC:$cond, bb:$dst),
-          (BNE (CMPri GPRC:$cond, 0), bb:$dst)>;  // if (!(A & B))
+//def : Pat<(brcond GPRC:$cond, bb:$dst),
+//          (BNE (CMPri GPRC:$cond, 0), bb:$dst)>;  // if (!(A & B))
 // setcc patterns
 
 //greater or equal
