@@ -62,9 +62,11 @@ static unsigned adjustFixupValue(unsigned Kind, uint64_t Value) {
   case Coffee::fixup_Coffee_25:
   case Coffee::fixup_Coffee_22:
         DEBUG(dbgs() << "coffee25before" << Value<<"\n");
-
-       Value -= 4;
-       Value >>= 1;
+        if (Value) {
+            //TODO: should recheck this. if value is 0, what to do ?
+            Value -= 4;
+            Value >>= 1;
+        }
         DEBUG(dbgs() << "coffee25after" << Value<<"\n");
     break;
   case Coffee::fixup_Coffee_HI16:

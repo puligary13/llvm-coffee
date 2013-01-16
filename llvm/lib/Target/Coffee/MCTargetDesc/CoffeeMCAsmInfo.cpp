@@ -21,7 +21,7 @@ void CoffeeMCAsmInfo::anchor() { }
 CoffeeMCAsmInfo::CoffeeMCAsmInfo(const Target &T, StringRef TT) {
   Triple TheTriple(TT);
   if ((TheTriple.getArch() == Triple::coffee))
-    IsLittleEndian = true;
+    IsLittleEndian = false;
 
   AlignmentIsInBytes          = false;
   Data16bitsDirective         = "\t.2byte\t";

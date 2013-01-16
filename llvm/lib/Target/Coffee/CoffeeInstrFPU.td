@@ -131,12 +131,14 @@ class MTCF<bits<6> op>:
     F2R<op, (outs FPRC:$rt), (ins GPRC:$rs), "mov\t$rt,\t$rs",
     [(set FPRC:$rt, (bitconvert GPRC:$rs))], IIAlu> {
 let Constraints = "$rt = $rs";
+let isCodeGenOnly = 1;
 }
 
 class MFCF<bits<6> op>:
     F2R<op, (outs GPRC:$rt), (ins FPRC:$rs), "mov\t$rt,\t$rs",
     [(set GPRC:$rt, (bitconvert FPRC:$rs))], IIAlu> {
 let Constraints = "$rt = $rs";
+let isCodeGenOnly = 1;
 }
 
 
