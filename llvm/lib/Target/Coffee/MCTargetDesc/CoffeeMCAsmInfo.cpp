@@ -28,7 +28,7 @@ CoffeeMCAsmInfo::CoffeeMCAsmInfo(const Target &T, StringRef TT) {
   Data32bitsDirective         = "\t.4byte\t";
   Data64bitsDirective         = "\t.8byte\t";
   PrivateGlobalPrefix         = "$";
-  CommentString               = "#";
+  CommentString               = ";";
   ZeroDirective               = "\t.space\t";
   GPRel32Directive            = "\t.gpword\t";
   GPRel64Directive            = "\t.gpdword\t";

@@ -215,7 +215,7 @@ class FFI<bits<6> op, dag outs, dag ins, string asmstr, list<dag> pattern> :
 
 // floating point instruction with register
 class FFR_C<bits<6> op, dag outs, dag ins, string asmstr, list<dag> pattern> :
-  InstCoffee<outs, ins, asmstr, pattern, NoItinerary, FrmFR>
+  InstCoffee<outs, ins, asmstr, pattern, IIFadd, FrmFR>
 {
   // opcode for coffee cop instruction
   let Opcode = 0b111100;

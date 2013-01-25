@@ -31,6 +31,19 @@ include "CoffeeInstrInfo.td"
 def Feature32         : SubtargetFeature<"coffee32", "CoffeeABI", "ABI32",
                                 "Enable Coffee ABI32">;
 
+def COP0 : SubtargetFeature<"fpu0", "IsCoProcessor0", "true",
+                                   "Enable FPU 0">;
+
+def COP1 : SubtargetFeature<"fpu1", "IsCoProcessor1", "true",
+                                   "Enable FPU 1">;
+
+
+def COP2 : SubtargetFeature<"fpu2", "IsCoProcessor2", "true",
+                                   "Enable FPU 2">;
+
+def COP3 : SubtargetFeature<"fpu3", "IsCoProcessor3", "true",
+                                   "Enable FPU 3">;
+
 include "CoffeeCallingConv.td"
 
 def CoffeeInstrInfo : InstrInfo {
