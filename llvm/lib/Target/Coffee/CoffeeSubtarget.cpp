@@ -54,8 +54,8 @@ CoffeeSubtarget::CoffeeSubtarget(const std::string &TT, const std::string &CPU,
 
 
   // Is the target system Linux ?
-  if (TT.find("linux") == std::string::npos) {
-      llvm_unreachable("coffee: we only support linux");
+  if (TT.find("linux") == std::string::npos && TT.find("coffeecl") == std::string::npos) {
+      llvm_unreachable("coffee: we only support linux or opencl");
   }
 
   // Set UseSmallSection.

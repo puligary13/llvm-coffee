@@ -119,7 +119,11 @@ namespace CallingConv {
     SPIR_KERNEL = 76,
 
     /// Intel_OCL_BI - Calling conventions for Intel OpenCL built-ins
-    Intel_OCL_BI = 77
+    Intel_OCL_BI = 77,
+
+    COFFEECL_Device = 78,
+
+    COFFEECL_Kernel = 79
 
   };
 } // End CallingConv namespace

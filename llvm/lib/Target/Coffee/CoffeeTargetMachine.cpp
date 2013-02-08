@@ -33,7 +33,10 @@ CoffeeTargetMachine::CoffeeTargetMachine(const Target &T, StringRef TT,
                                    CodeGenOpt::Level OL)
   : LLVMTargetMachine(T, TT, CPU, FS, Options, RM, CM, OL),
     Subtarget(TT, CPU, FS, false, RM),  //is Big Endian
-    DL("E-p:32:32:32-i8:8:32-i16:16:32-i32:32:32-f32:32:32-n32"),
+    //DL("E-p:32:32:32-i1:32:32-i8:32:32-i16:32:32-i32:32:32-f32:32:32-n32-S32"),
+    DL("E-p:32:32:32-i1:8:8-i8:8:8-i16:16:16-i32:32:32-i64:64:64-"
+       "f32:32:32-f64:64:64-v16:16:16-v32:32:32-v64:64:64-v128:128:128-"
+       "n16:32:64"),
     InstrInfo(*this),
     FrameLowering(),
     TLInfo(*this),

@@ -708,6 +708,8 @@ void Verifier::visitFunction(Function &F) {
   case CallingConv::Intel_OCL_BI:
   case CallingConv::PTX_Kernel:
   case CallingConv::PTX_Device:
+  case CallingConv::COFFEECL_Kernel:
+  case CallingConv::COFFEECL_Device:
     Assert1(!F.isVarArg(),
             "Varargs functions must have C calling conventions!", &F);
     break;

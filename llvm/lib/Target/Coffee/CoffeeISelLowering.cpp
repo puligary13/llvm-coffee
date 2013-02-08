@@ -1271,8 +1271,8 @@ CoffeeTargetLowering::CoffeeCC::CoffeeCC(CallingConv::ID CallConv, bool IsVarArg
                                          CCState &Info) : CCInfo(Info) {
     UseRegsForByval = true;
 
-    if (CallConv != CallingConv::C && CallConv != CallingConv::Fast)
-        llvm_unreachable("Coffee: the call convention is not C");
+    if (CallConv != CallingConv::C && CallConv != CallingConv::Fast && CallConv != CallingConv::COFFEECL_Device && CallConv != CallingConv::COFFEECL_Kernel)
+        llvm_unreachable("Coffee: the call convention is not C or COFFEECL device");
 
     RegSize = 4;
     NumIntArgRegs = array_lengthof(IntRegs);

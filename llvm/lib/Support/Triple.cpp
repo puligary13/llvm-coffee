@@ -42,6 +42,7 @@ const char *Triple::getArchTypeName(ArchType Kind) {
   case le32:    return "le32";
   case amdil:   return "amdil";
   case coffee:  return "coffee";
+  case coffeecl: return "coffeecl";
   case spir:    return "spir";
   case spir64:  return "spir64";
   }
@@ -84,6 +85,7 @@ const char *Triple::getArchTypePrefix(ArchType Kind) {
   case le32:    return "le32";
   case amdil:   return "amdil";
   case coffee:  return "coffee";
+  case coffeecl: return "coffeecl";
   case spir:    return "spir";
   case spir64:  return "spir";
   }
@@ -178,6 +180,7 @@ Triple::ArchType Triple::getArchTypeForLLVMName(StringRef Name) {
     .Case("le32", le32)
     .Case("amdil", amdil)
     .Case("coffee", coffee)
+    .Case("coffeecl", coffeecl)
     .Case("spir", spir)
     .Case("spir64", spir64)
     .Default(UnknownArch);
@@ -205,6 +208,7 @@ const char *Triple::getArchNameForAssembler() {
     .Case("le32", "le32")
     .Case("amdil", "amdil")
     .Case("coffee", "coffee")
+    .Case("coffeecl", "coffeecl")
     .Case("spir", "spir")
     .Case("spir64", "spir64")
     .Default(NULL);
@@ -241,6 +245,7 @@ static Triple::ArchType parseArch(StringRef ArchName) {
     .Case("le32", Triple::le32)
     .Case("amdil", Triple::amdil)
     .Case("coffee", Triple::coffee)
+    .Case("coffeecl",Triple::coffeecl)
     .Case("spir", Triple::spir)
     .Case("spir64", Triple::spir64)
     .Default(Triple::UnknownArch);
@@ -679,6 +684,7 @@ static unsigned getArchPointerBitWidth(llvm::Triple::ArchType Arch) {
   case llvm::Triple::x86:
   case llvm::Triple::xcore:
   case llvm::Triple::coffee:
+  case llvm::Triple::coffeecl:
   case llvm::Triple::spir:
     return 32;
 
@@ -731,6 +737,7 @@ Triple Triple::get32BitArchVariant() const {
   case Triple::x86:
   case Triple::xcore:
   case Triple::coffee:
+  case Triple::coffeecl:
     // Already 32-bit.
     break;
 
@@ -760,6 +767,7 @@ Triple Triple::get64BitArchVariant() const {
   case Triple::thumb:
   case Triple::xcore:
   case Triple::coffee:
+  case Triple::coffeecl:
     T.setArch(UnknownArch);
     break;
 

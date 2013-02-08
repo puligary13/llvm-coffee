@@ -17,4 +17,6 @@ Target llvm::TheCoffeeTarget;
 extern "C" void LLVMInitializeCoffeeTargetInfo() {
   RegisterTarget<Triple::coffee, /*HasJIT=*/false>
     X(TheCoffeeTarget, "Coffee", "Coffee");
+  RegisterTarget<Triple::coffeecl, /*HasJIT=*/false>
+    Y(TheCoffeeTarget, "Coffee", "Coffee");
 }

@@ -471,5 +471,8 @@ include "llvm/IntrinsicsARM.td"
 include "llvm/IntrinsicsXCore.td"
 include "llvm/IntrinsicsHexagon.td"
 include "llvm/IntrinsicsCoffee.td"
+
 include "llvm/IntrinsicsNVVM.td"
 include "llvm/IntrinsicsMips.td"
+include "llvm/IntrinsicsCoffeecl.td"
+

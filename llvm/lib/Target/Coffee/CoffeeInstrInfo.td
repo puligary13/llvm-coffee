@@ -1081,3 +1081,4 @@ def : Pat<(setone GPRC:$lhs, GPRC:$rhs),
 include "CoffeeInstrFPU.td"
 include "CoffeeConMov.td"
 
+include "CoffeeIntrinsics.td"
