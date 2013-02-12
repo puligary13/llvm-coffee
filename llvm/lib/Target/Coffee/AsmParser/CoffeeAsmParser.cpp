@@ -1594,6 +1594,13 @@ bool CoffeeAsmParser::ParseDirective(AsmToken DirectiveID) {
     return false;
   }
 
+  if (DirectiveID.getString() == ".stabs") {
+    // ignore this directive for now
+    Parser.EatToEndOfStatement();
+    return false;
+  }
+
+
   if (DirectiveID.getString() == ".gpword") {
     // ignore this directive for now
     Parser.EatToEndOfStatement();

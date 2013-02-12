@@ -157,6 +157,7 @@ private:
     SDValue getCoffeeCmp(SDValue LHS, SDValue RHS, SelectionDAG &DAG,
                                  DebugLoc dl) const;
     SDValue LowerRETURNADDR(SDValue Op, SelectionDAG &DAG) const;
+    SDValue LowerVASTART(SDValue Op, SelectionDAG &DAG) const;
 
     SDValue LowerMemOpCallTo(SDValue Chain,
                      SDValue StackPtr, SDValue Arg,

@@ -225,6 +225,8 @@ CoffeeTargetLowering::CoffeeTargetLowering(CoffeeTargetMachine &TM)
     setOperationAction(ISD::SELECT_CC, MVT::i32, Custom);
     setOperationAction(ISD::SELECT_CC, MVT::f32, Custom);
 
+    setOperationAction(ISD::VASTART,   MVT::Other, Custom);
+
     // *****NOTE*****
     // Don't expand SETCC and then customize SELECT_CC to SETCC&SELECT as
     // expanding SETCC would convert it to SELECT_CC which will cause loop
@@ -247,7 +249,7 @@ CoffeeTargetLowering::CoffeeTargetLowering(CoffeeTargetMachine &TM)
     setOperationAction(ISD::MEMBARRIER,         MVT::Other, Expand);
     setOperationAction(ISD::ATOMIC_FENCE,       MVT::Other, Expand);
     setOperationAction(ISD::DYNAMIC_STACKALLOC, MVT::i32,   Expand);
-    setOperationAction(ISD::VASTART,            MVT::Other, Expand);
+
     setOperationAction(ISD::SDIV,              MVT::i32, Expand);
     setOperationAction(ISD::SREM,              MVT::i32, Expand);
     setOperationAction(ISD::UDIV,              MVT::i32, Expand);
@@ -969,8 +971,25 @@ SDValue CoffeeTargetLowering::LowerOperation(SDValue Op, SelectionDAG &DAG) cons
     //case ISD::SETCC: return Op; //LowerSETCC(Op, DAG);
     //case ISD::SELECT: return Op; //LowerSELECT(Op, DAG);
     case ISD::SELECT_CC: return LowerSELECT_CC(Op, DAG);
+    case ISD::VASTART: return LowerVASTART(Op, DAG);
 
     }
+}
+
+
+SDValue CoffeeTargetLowering::LowerVASTART(SDValue Op, SelectionDAG &DAG) const {
+  MachineFunction &MF = DAG.getMachineFunction();
+  CoffeeFunctionInfo *FuncInfo = MF.getInfo<CoffeeFunctionInfo>();
+
+  DebugLoc dl = Op.getDebugLoc();
+  SDValue FI = DAG.getFrameIndex(FuncInfo->getVarArgsFrameIndex(),
+                                 getPointerTy());
+
+  // vastart just stores the address of the VarArgsFrameIndex slot into the
+  // memory location argument.
+  const Value *SV = cast<SrcValueSDNode>(Op.getOperand(2))->getValue();
+  return DAG.getStore(Op.getOperand(0), dl, FI, Op.getOperand(1),
+                      MachinePointerInfo(SV), false, false, 0);
 }
 
 SDValue CoffeeTargetLowering::
