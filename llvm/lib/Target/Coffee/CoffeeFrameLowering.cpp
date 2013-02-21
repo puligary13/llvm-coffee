@@ -94,9 +94,14 @@ void CoffeeFrameLowering::emitPrologue(MachineFunction &MF) const {
 
     // if frame pointer enabled, set it to point to the stack pointers
     if (hasFP(MF)) {
+        //move to the last spill instruction
+        MachineBasicBlock::iterator I = MBBI;
+        for (unsigned i = 0; i < MFI->getCalleeSavedInfo().size(); ++i)
+          ++I;
+
         // we copy SP to FP register, processFunctionBeforeCalleeSavedScan() has add FP as used so
         // it will be spilled on stack before this is called to save the original value in FP
-        BuildMI(MBB, MBBI, dl, TII.get(Coffee::Mov), Coffee::FP).addReg(Coffee::SP);
+        BuildMI(MBB, I, dl, TII.get(Coffee::Mov), Coffee::FP).addReg(Coffee::SP);
     }
 
 
