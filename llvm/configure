@@ -5418,7 +5418,7 @@ if test "$enableval" = host-only ; then
   enableval=host
 fi
 case "$enableval" in
-  all) TARGETS_TO_BUILD="X86 Sparc PowerPC ARM Mips XCore MSP430 CppBackend MBlaze NVPTX Hexagon Coffee" ;;
+  all) TARGETS_TO_BUILD="X86 Sparc PowerPC ARM Mips XCore MSP430 CppBackend MBlaze NVPTX Hexagon Coffee CoffeeCL" ;;
   *)for a_target in `echo $enableval|sed -e 's/,/ /g' ` ; do
       case "$a_target" in
         x86)      TARGETS_TO_BUILD="X86 $TARGETS_TO_BUILD" ;;
@@ -5427,6 +5427,7 @@ case "$enableval" in
         powerpc)  TARGETS_TO_BUILD="PowerPC $TARGETS_TO_BUILD" ;;
         arm)      TARGETS_TO_BUILD="ARM $TARGETS_TO_BUILD" ;;
         coffee)   TARGETS_TO_BUILD="Coffee $TARGETS_TO_BUILD";;
+        coffeecl) TARGETS_TO_BUILD="CoffeeCL $TARGETS_TO_BUILD";;
         mips)     TARGETS_TO_BUILD="Mips $TARGETS_TO_BUILD" ;;
         mipsel)   TARGETS_TO_BUILD="Mips $TARGETS_TO_BUILD" ;;
         mips64)   TARGETS_TO_BUILD="Mips $TARGETS_TO_BUILD" ;;
@@ -5444,6 +5445,7 @@ case "$enableval" in
             PowerPC)     TARGETS_TO_BUILD="PowerPC $TARGETS_TO_BUILD" ;;
             ARM)         TARGETS_TO_BUILD="ARM $TARGETS_TO_BUILD" ;;
             Coffee)      TARGETS_TO_BUILD="Coffee $TARGETS_TO_BUILD" ;;
+            CoffeeCL)    TARGETS_TO_BUILD="CoffeeCL $TARGETS_TO_BUILD";;
             Mips)        TARGETS_TO_BUILD="Mips $TARGETS_TO_BUILD" ;;
             MBlaze)      TARGETS_TO_BUILD="MBlaze $TARGETS_TO_BUILD" ;;
             XCore)       TARGETS_TO_BUILD="XCore $TARGETS_TO_BUILD" ;;

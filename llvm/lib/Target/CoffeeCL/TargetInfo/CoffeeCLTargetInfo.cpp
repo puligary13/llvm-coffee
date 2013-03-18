@@ -1,4 +1,4 @@
-//===-- CoffeeTargetInfo.cpp - Coffee Target Implementation -------------===//
+//===-- CoffeeCLTargetInfo.cpp - CoffeeCL Target Implementation -------------===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -7,14 +7,14 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "Coffee.h"
+#include "CoffeeCL.h"
 #include "llvm/Module.h"
 #include "llvm/Support/TargetRegistry.h"
 using namespace llvm;
 
-Target llvm::TheCoffeeTarget;
+Target llvm::TheCoffeeCLTarget;
 
-extern "C" void LLVMInitializeCoffeeTargetInfo() {
-  RegisterTarget<Triple::coffee, /*HasJIT=*/false>
-    X(TheCoffeeTarget, "Coffee", "Coffee");
+extern "C" void LLVMInitializeCoffeeCLTargetInfo() {
+  RegisterTarget<Triple::coffeecl, /*HasJIT=*/false>
+    X(TheCoffeeCLTarget, "CoffeeCL", "CoffeeCL");
 }

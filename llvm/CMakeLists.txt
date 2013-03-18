@@ -86,6 +86,7 @@ set(LLVM_ALL_TARGETS
   X86
   XCore
   Coffee
+  CoffeeCL
   )
 
 # List of targets with JIT support:

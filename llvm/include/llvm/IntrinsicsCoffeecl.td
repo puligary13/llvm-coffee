@@ -1,4 +1,9 @@
-
+//=========== InstrinsicsCoffeecl.td===================//
+// The implementation of this file is corresponding to //
+// the definition in BuiltinsCOFFEECL.def and this is  //
+// used by target specific intrinsic implemenation in  //
+// backend CoffeeCLIntrinsics.td                       //
+//=====================================================//
 
 
 multiclass COFFEECLReadSpecialRegisterIntrinsic_v4i32<string prefix> {
@@ -77,3 +82,9 @@ def int_coffeecl_read_pm3         : COFFEECLReadSpecialRegisterIntrinsic_r32
 
 def int_coffeecl_bar_sync : Intrinsic<[], [llvm_i32_ty], []>,
                        GCCBuiltin<"__builtin_coffeecl_bar_sync">;
+
+
+
+def int_coffeecl_abs_i : Intrinsic<[llvm_i32_ty], [llvm_i32_ty]>,
+                       GCCBuiltin<"__coffeecl_abs_i">;
+
