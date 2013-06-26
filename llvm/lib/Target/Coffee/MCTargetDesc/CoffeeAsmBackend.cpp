@@ -66,8 +66,8 @@ static unsigned adjustFixupValue(unsigned Kind, uint64_t Value) {
             //TODO: should recheck this. if value is 0, what to do ?
             Value -= 4;
             Value >>= 1;
-        }else {
-          Value = -2;
+        } else {
+            Value = -2;
         }
         DEBUG(dbgs() << "coffee25after" << Value<<"\n");
     break;

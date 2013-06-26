@@ -12,6 +12,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "CoffeeCLTargetMachine.h"
+#include "CoffeeCLPass.h"
 #include "CoffeeCL.h"
 #include "llvm/PassManager.h"
 #include "llvm/MC/MCStreamer.h"
@@ -74,6 +75,7 @@ TargetPassConfig *CoffeeCLTargetMachine::createPassConfig(PassManagerBase &PM) {
 
 bool CoffeeCLPassConfig::addInstSelector() {
   // Install an instruction selector.
+  addPass(createCoffeeCLPass());
   addPass(createCoffeeCLISelDag(getCoffeeCLTargetMachine()));
   return false;
 }

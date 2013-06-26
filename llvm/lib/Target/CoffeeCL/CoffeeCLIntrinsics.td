@@ -91,5 +91,18 @@ def COFFEECL_BAR_SYNC : InstCoffeeCL<(outs), (ins i32imm:$i), "bar.sync $i",
 
 
 
-def INT_COFFEECL_ABS_I : F_MATH_1<"testing", int_coffeecl_abs_i>;
+def INT_COFFEECL_ABS_I : F_MATH_1<"crema_abs_configuration", int_coffeecl_abs_i>;
+
+def INT_COFFEECL_SIN_APPROX_F : F_MATH_1<"crema_sin_approx_f_configuration", int_coffeecl_sin_approx_f>;
+
+def INT_COFFEECL_SIN : F_MATH_1<"crema_sin_configuration", int_coffeecl_sin>;
+
+def INT_COFFEECL_GET_GLOBAL_ID : F_MATH_1<"crema_get_global_id", int_coffeecl_get_global_id>;
+
+def INT_COFFEECL_LOAD : F_MATH_1<"crema_load", int_coffeecl_load>;
+
+def INT_COFFEECL_GETELEMENTPTR : F_MATH_1<"crema_getelementptr", int_coffeecl_getelementptr>;
+
+// Guoqing: continue from here, add sin function as intrinsic and see how the function call
+// behave in llvm backends.
 

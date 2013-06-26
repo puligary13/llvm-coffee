@@ -76,6 +76,8 @@ public:
     typedef SmallVector<std::pair<unsigned, SDValue>, 8> RegsToPassVector;
     bool isLegalICmpImmediate(int64_t Imm) const;
     virtual SDValue PerformDAGCombine(SDNode *N, DAGCombinerInfo &DCI) const;
+    bool getTgtMemIntrinsic(IntrinsicInfo& Info, const CallInst &I,
+                                            unsigned Intrinsic) const;
 
 
 private:

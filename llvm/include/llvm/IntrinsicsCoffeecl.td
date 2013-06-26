@@ -88,3 +88,18 @@ def int_coffeecl_bar_sync : Intrinsic<[], [llvm_i32_ty], []>,
 def int_coffeecl_abs_i : Intrinsic<[llvm_i32_ty], [llvm_i32_ty]>,
                        GCCBuiltin<"__coffeecl_abs_i">;
 
+def int_coffeecl_sin_approx_f : GCCBuiltin<"__coffeecl_sin_approx_f">,
+    Intrinsic<[llvm_float_ty], [llvm_float_ty], [IntrNoMem]>;
+
+def int_coffeecl_sin : GCCBuiltin<"__coffeecl_sin">,
+    Intrinsic<[llvm_float_ty], [llvm_float_ty], [IntrNoMem]>;
+
+def int_coffeecl_get_global_id : GCCBuiltin<"__coffeecl_get_global_id">,
+    Intrinsic<[llvm_i32_ty], [llvm_i32_ty], [IntrNoMem]>;
+
+
+def int_coffeecl_load : GCCBuiltin<"__coffeecl_load">,
+    Intrinsic<[llvm_i32_ty], [llvm_i32_ty], [IntrNoMem]>;
+
+def int_coffeecl_getelementptr : GCCBuiltin<"__coffeecl_getelementptr">,
+    Intrinsic<[llvm_i32_ty], [llvm_i32_ty], [IntrNoMem]>;

@@ -330,6 +330,62 @@ static SDValue PerformSELECTCombine(SDNode *N, SelectionDAG &DAG,
 }
 
 
+bool
+CoffeeCLTargetLowering::getTgtMemIntrinsic(IntrinsicInfo& Info, const CallInst &I,
+                                        unsigned Intrinsic) const {
+ /* switch (Intrinsic) {
+  default:
+    return false;
+
+  case Intrinsic::nvvm_atomic_load_add_f32:
+    Info.opc = ISD::INTRINSIC_W_CHAIN;
+    Info.memVT = MVT::f32;
+    Info.ptrVal = I.getArgOperand(0);
+    Info.offset = 0;
+    Info.vol = 0;
+    Info.readMem = true;
+    Info.writeMem = true;
+    Info.align = 0;
+    return true;
+
+  case Intrinsic::nvvm_atomic_load_inc_32:
+  case Intrinsic::nvvm_atomic_load_dec_32:
+    Info.opc = ISD::INTRINSIC_W_CHAIN;
+    Info.memVT = MVT::i32;
+    Info.ptrVal = I.getArgOperand(0);
+    Info.offset = 0;
+    Info.vol = 0;
+    Info.readMem = true;
+    Info.writeMem = true;
+    Info.align = 0;
+    return true;
+
+  case Intrinsic::nvvm_ldu_global_i:
+  case Intrinsic::nvvm_ldu_global_f:
+  case Intrinsic::nvvm_ldu_global_p:
+
+    Info.opc = ISD::INTRINSIC_W_CHAIN;
+    if (Intrinsic == Intrinsic::nvvm_ldu_global_i)
+      Info.memVT = MVT::i32;
+    else if (Intrinsic == Intrinsic::nvvm_ldu_global_p)
+      Info.memVT = getPointerTy();
+    else
+      Info.memVT = MVT::f32;
+    Info.ptrVal = I.getArgOperand(0);
+    Info.offset = 0;
+    Info.vol = 0;
+    Info.readMem = true;
+    Info.writeMem = false;
+    Info.align = 0;
+    return true;
+
+  }*/
+
+  // return all true to get rid of the extra operand in intrinsic node
+  return false;
+}
+
+
 SDValue  CoffeeCLTargetLowering::PerformDAGCombine(SDNode *N, DAGCombinerInfo &DCI)
 const {
     SelectionDAG &DAG = DCI.DAG;

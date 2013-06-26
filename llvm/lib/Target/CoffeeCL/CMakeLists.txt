@@ -31,7 +31,7 @@ add_llvm_target(CoffeeCLCodeGen
   CoffeeCLCodeEmitter.cpp
   CoffeeCLBranchSelector.cpp
   CoffeeCLHazardRecognizers.cpp
-
+  CoffeeCLPass.cpp
   )
 
 add_subdirectory(InstPrinter)

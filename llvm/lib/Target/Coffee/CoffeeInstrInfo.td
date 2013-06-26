@@ -546,6 +546,15 @@ let Inst{11-10} = imm;
 let Inst{9-5} = rt;
 }
 
+class MovfcF<bits<6> opcode>: F<opcode, (outs GPRC:$rd), (ins GPRC:$rt, imm2:$imm), "movfc\t$imm,\t$rd,\t$rt", [], IIAlu> {
+bits<5> rd;
+bits<5> rt;
+bits<2> imm;
+let Inst{16-12} = rt;
+let Inst{11-10} = imm;
+let Inst{4-0} = rd;
+}
+
 class ExbF<bits<6> opcode>: F<opcode, (outs GPRC:$rd), (ins GPRC:$rt, imm2:$imm), "exb\t$rd,\t$rt,\t$imm", [], IIAlu> {
 bits<5> rd;
 bits<5> rt;
@@ -699,6 +708,7 @@ def CHRS   : ChrsF<0b110011>;
 def CONH   : ConhF<0b000100>;
 
 def MOVTC   : MovtcF<0b110110>;
+def MOVFC   : MovfcF<0b101100>;
 
 def EXB    : ExbF<0b110000>;
 def EXH    : ExhF<0b110001>;
