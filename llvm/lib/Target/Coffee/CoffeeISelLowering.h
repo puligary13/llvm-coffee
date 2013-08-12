@@ -40,7 +40,10 @@ enum NodeType {
     MUL,
     MUL_64,
     JmpLink, //CALL
-    CondMov
+    CondMov,
+    EXB,
+    EXH,
+    EXBF
 };
 }
 
@@ -76,6 +79,12 @@ public:
     typedef SmallVector<std::pair<unsigned, SDValue>, 8> RegsToPassVector;
     bool isLegalICmpImmediate(int64_t Imm) const;
     virtual SDValue PerformDAGCombine(SDNode *N, DAGCombinerInfo &DCI) const;
+
+    EVT getOptimalMemOpType(uint64_t Size,
+                            unsigned DstAlign, unsigned SrcAlign,
+                            bool IsZeroVal,
+                            bool MemcpyStrSrc,
+                            MachineFunction &MF) const;
 
 
 private:
@@ -141,6 +150,9 @@ private:
       SmallVector<ByValArgInfo, 2> ByValArgs;
       llvm::CCAssignFn *FixedFn, *VarFn;
     };
+
+    SDValue LowerSTORE(SDValue Op, SelectionDAG &DAG) const;
+    SDValue LowerLOAD(SDValue Op, SelectionDAG &DAG) const;
 
     SDValue LowerConstantPool(SDValue Op, SelectionDAG &DAG) const;
     SDValue LowerBITCAST(SDValue Op, SelectionDAG &DAG) const;

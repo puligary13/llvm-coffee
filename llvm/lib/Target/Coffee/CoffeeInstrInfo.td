@@ -19,6 +19,21 @@ class NeverHasSideEffects {
 
 include "CoffeeInstrFormats.td"
 
+/**
+reference taken from TargetSelectionDAG.td
+
+def SDTIntLeaf: SDTypeProfile<1, 0, [SDTCisInt<0>]>;         // for 'imm'.
+def SDTFPLeaf : SDTypeProfile<1, 0, [SDTCisFP<0>]>;          // for 'fpimm'.
+def SDTPtrLeaf: SDTypeProfile<1, 0, [SDTCisPtrTy<0>]>;       // for '&g'.
+def SDTOther  : SDTypeProfile<1, 0, [SDTCisVT<0, OtherVT>]>; // for 'vt'.
+def SDTUNDEF  : SDTypeProfile<1, 0, []>;                     // for 'undef'.
+def SDTUnaryOp  : SDTypeProfile<1, 1, []>;                   // for bitconvert.
+
+
+**/
+
+
+
 
 // Node definition
 def SDT_CoffeeJmpLink      : SDTypeProfile<0, 1, [SDTCisVT<0, iPTR>]>;
@@ -28,6 +43,15 @@ def SDT_COFFEECmp     : SDTypeProfile<0, 2, [SDTCisSameAs<0, 1>]>;
 def SDT_COFFEERet          : SDTypeProfile<0, 1, [SDTCisInt<0>]>;
 def SDT_COFFEEDynAlloc    : SDTypeProfile<1, 1, [SDTCisVT<0, iPTR>,
                                                SDTCisSameAs<0, 1>]>;
+
+def SDT_COFFEEExb         : SDTypeProfile<1, 2, [SDTCisVT<0, i32>,
+                                                 SDTCisVT<1, i32>, SDTCisInt<2>]>;
+
+def SDT_COFFEEExh         : SDTypeProfile<1, 2, [SDTCisVT<0, i32>,
+                                                 SDTCisVT<1, i32>, SDTCisInt<2>]>;
+
+def SDT_COFFEEExbf         : SDTypeProfile<1, 2, [SDTCisVT<0, i32>,
+                                                 SDTCisVT<1, i32>, SDTCisVT<2, i32>]>;
 
 def SDT_COFFEECondMov : SDTypeProfile<1, 2, [SDTCisSameAs<0, 1>,
                                           SDTCisSameAs<1, 2>]>;
@@ -71,6 +95,10 @@ def MUL_64           : SDNode<"COFFEEISD::MUL_64", SDT_MUL_64, [SDNPInGlue]>;
 def COFFEEcmp           : SDNode<"COFFEEISD::CMP", SDT_COFFEECmp,
                               [SDNPOutGlue]>;
 
+def COFFEEexb           : SDNode<"COFFEEISD::EXB", SDT_COFFEEExb, [SDNPHasChain]>;
+def COFFEEexbf           : SDNode<"COFFEEISD::EXBF", SDT_COFFEEExbf, [SDNPHasChain]>;
+def COFFEEexh           : SDNode<"COFFEEISD::EXH", SDT_COFFEEExh, [SDNPHasChain]>;
+
 def COFFEELo    : SDNode<"COFFEEISD::Lo", SDTIntUnaryOp>;
 def COFFEEHi    : SDNode<"COFFEEISD::Hi", SDTIntBinOp>;
 
@@ -90,6 +118,9 @@ def immSExt16  : PatLeaf<(imm), [{ return isInt<16>(N->getSExtValue()); }]>;
 
 def immZExt17  : PatLeaf<(imm), [{ return isUInt<17>(N->getZExtValue());  }]>;
 def immSExt17  : PatLeaf<(imm), [{ return isInt<17>(N->getSExtValue()); }]>;
+
+def immZExt1  : ImmLeaf<i32, [{return Imm == (Imm & 0x01);}]>;
+def immZExt2  : ImmLeaf<i32, [{return Imm == (Imm & 0x03);}]>;
 
 
 def LO16 : SDNodeXForm<imm, [{
@@ -555,7 +586,18 @@ let Inst{11-10} = imm;
 let Inst{4-0} = rd;
 }
 
-class ExbF<bits<6> opcode>: F<opcode, (outs GPRC:$rd), (ins GPRC:$rt, imm2:$imm), "exb\t$rd,\t$rt,\t$imm", [], IIAlu> {
+
+class ExbfF<bits<6> opcode>: F<opcode, (outs GPRC:$rd), (ins GPRC:$rt, GPRC:$rs), "exbf\t$rd,\t$rt,\t$rs", [(set GPRC:$rd, (COFFEEexbf GPRC:$rt, GPRC:$rs))], IIAlu> {
+bits<5> rd;
+bits<5> rt;
+bits<5> rs;
+
+let Inst{14-10} = rs;
+let Inst{9-5} = rt;
+let Inst{4-0} = rd;
+}
+
+class ExbF<bits<6> opcode>: F<opcode, (outs GPRC:$rd), (ins GPRC:$rt, imm2:$imm), "exb\t$rd,\t$rt,\t$imm", [(set GPRC:$rd, (COFFEEexb GPRC:$rt, immZExt2:$imm))], IIAlu> {
 bits<5> rd;
 bits<5> rt;
 bits<2> imm;
@@ -565,7 +607,7 @@ let Inst{9-5} = rt;
 let Inst{4-0} = rd;
 }
 
-class ExhF<bits<6> opcode>: F<opcode, (outs GPRC:$rd), (ins GPRC:$rt, imm1:$imm), "exh\t$rd,\t$rt,\t$imm", [], IIAlu> {
+class ExhF<bits<6> opcode>: F<opcode, (outs GPRC:$rd), (ins GPRC:$rt, imm1:$imm), "exh\t$rd,\t$rt,\t$imm", [(set GPRC:$rd, (COFFEEexh GPRC:$rt, immZExt1:$imm))], IIAlu> {
 bits<5> rd;
 bits<5> rt;
 bits<1> imm;
@@ -712,6 +754,7 @@ def MOVFC   : MovfcF<0b101100>;
 
 def EXB    : ExbF<0b110000>;
 def EXH    : ExhF<0b110001>;
+def EXBF    : ExbfF<0b011010>;
 
 def SEXTI  : SextiF<0b101011>;
 
@@ -808,13 +851,13 @@ def : Pat<(i32 imm:$val),
           (LUri (LLiu (LO16 imm:$val)), (HI16 imm:$val))>;
 
 //load & store
-def : Pat<(i32 (extloadi1  addr:$src)), (LW addr:$src)>;
-def : Pat<(i32 (extloadi8  addr:$src)), (LW addr:$src)>;
-def : Pat<(i32 (extloadi16 addr:$src)), (LW addr:$src)>;
+def : Pat<(i32 (extloadi1  addr:$src)), (LW addr:$src)>; //leave it for now,
+def : Pat<(i32 (extloadi8  addr:$src)), (EXB (LW addr:$src),0)>;
+def : Pat<(i32 (extloadi16 addr:$src)), (EXH (LW addr:$src),0)>;
 
 def : Pat<(i32 (zextloadi1  addr:$src)), (LW addr:$src)>;
-def : Pat<(i32 (zextloadi8  addr:$src)), (LW addr:$src)>;
-def : Pat<(i32 (zextloadi16 addr:$src)), (LW addr:$src)>;
+def : Pat<(i32 (zextloadi8  addr:$src)), (EXB (LW addr:$src),0)>;
+def : Pat<(i32 (zextloadi16 addr:$src)), (EXH (LW addr:$src),0)>;
 
 def : Pat<(i32 (sextloadi1  addr:$src)), (SEXTI (LW addr:$src), 7)>;
 def : Pat<(i32 (sextloadi8  addr:$src)), (SEXTI (LW addr:$src), 7)>;

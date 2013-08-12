@@ -135,27 +135,22 @@ CoffeeTargetLowering::CoffeeTargetLowering(CoffeeTargetMachine &TM)
     addRegisterClass(MVT::i32, &Coffee::GPRCRegClass);
     addRegisterClass(MVT::f32, &Coffee::FPRCRegClass);
 
-    // DataLayout is defined as this for COFFEE
-    // ("E-p:32:32:32-i8:8:32-i16:16:32-i32:32:32-f32:32:32-n32"),
-
-    // the data layout checking should take care of the MVT::i1 promotion
-    // it will select i8 with layout 32 according to the internal selection logic
-
     // Load
-    // legalizeDAG.cpp LegalizeLoadOps() will convert it to MVT:i8
-    setLoadExtAction(ISD::EXTLOAD,  MVT::i1,  Promote);
+
+    setLoadExtAction(ISD::EXTLOAD,  MVT::i1,  Promote); /* legalizeDAG.cpp LegalizeLoadOps() will convert MVT::i1 it to MVT::i8*/
     setLoadExtAction(ISD::ZEXTLOAD, MVT::i1,  Promote);
     setLoadExtAction(ISD::SEXTLOAD, MVT::i1,  Promote);
 
-    // extload for i8, not natively supported
-    //setLoadExtAction(ISD::EXTLOAD,  MVT::i8,  Expand);
-    //setLoadExtAction(ISD::ZEXTLOAD, MVT::i8,  Expand);
-    //setLoadExtAction(ISD::SEXTLOAD, MVT::i8,  Expand);
+    setLoadExtAction(ISD::EXTLOAD,  MVT::i8,  Custom); /*This operation will be customized if the address operand is FrameIndex+Offset*/
+    setLoadExtAction(ISD::ZEXTLOAD, MVT::i8,  Custom); /*because we don't support unalignment access. This operation will be seperated to*/
+    setLoadExtAction(ISD::SEXTLOAD, MVT::i8,  Custom); /*alignment access with exb or exh instruction for i8 and i16 respectively*/
 
-    // extload for i16, not natively supported
-    //setLoadExtAction(ISD::EXTLOAD,  MVT::i16,  Expand);
-    //setLoadExtAction(ISD::ZEXTLOAD, MVT::i16,  Expand);
-    //setLoadExtAction(ISD::SEXTLOAD, MVT::i16,  Expand);
+    setLoadExtAction(ISD::EXTLOAD,  MVT::i16,  Custom);
+    setLoadExtAction(ISD::ZEXTLOAD, MVT::i16,  Custom);
+    setLoadExtAction(ISD::SEXTLOAD, MVT::i16,  Custom);
+
+    //setTruncStoreAction(MVT::i32, MVT::i8, Custom);
+    //setTruncStoreAction(MVT::i32, MVT::i16, Custom);
 
     // extload for f32, f64 is not natively supported type
     // setLoadExtAction(ISD::EXTLOAD, MVT::f32, Expand);
@@ -178,14 +173,14 @@ CoffeeTargetLowering::CoffeeTargetLowering(CoffeeTargetMachine &TM)
     setOperationAction(ISD::ConstantPool,       MVT::i32,   Custom);
     setOperationAction(ISD::ADD,  MVT::i32, Custom);
 
-
+    /**
     // Based on the instruction set of COFFEE, we need to do the following
     // legalization:
 
     // SETCC -> expand to SELECT_CC
     // SELECT -> expand to SELECT_CC
     // BRCOND -> expand to BR_CC
-    // Try to combine SELECT with SETCC to form SELECT_CC
+    // Try to combine SELECT with SETCC to form SELECT_CC */
 
     setOperationAction(ISD::SETCC,     MVT::i32, Expand);
     setOperationAction(ISD::SETCC,     MVT::f32, Expand);
@@ -250,8 +245,8 @@ CoffeeTargetLowering::CoffeeTargetLowering(CoffeeTargetMachine &TM)
     setOperationAction(ISD::ATOMIC_FENCE,       MVT::Other, Expand);
     setOperationAction(ISD::DYNAMIC_STACKALLOC, MVT::i32,   Expand);
 
-    setOperationAction(ISD::SDIV,              MVT::i32, Expand);
-    setOperationAction(ISD::SREM,              MVT::i32, Expand);
+    setOperationAction(ISD::SDIV,              MVT::i32, Expand); /*This will expand to function call __divsi3*/
+    setOperationAction(ISD::SREM,              MVT::i32, Expand); /*This will expand to function call __modsi3*/
     setOperationAction(ISD::UDIV,              MVT::i32, Expand);
     setOperationAction(ISD::UREM,              MVT::i32, Expand);
     setOperationAction(ISD::BR_JT,             MVT::Other, Expand);
@@ -297,8 +292,15 @@ CoffeeTargetLowering::CoffeeTargetLowering(CoffeeTargetMachine &TM)
     // setTargetDAGCombine(ISD::AND);
     // setTargetDAGCombine(ISD::OR);
 
+    // This is used to control the Memcpy code generation.
+    // For the details, please see SelectionDAG.cpp:3521
+    // We don't use llvm internal logic to handle memory copy.
+    // We will memcpy function
+    maxStoresPerMemcpy = maxStoresPerMemcpyOptSize = 0;
 
-    setMinFunctionAlignment(2);
+    setMinFunctionAlignment(4);
+
+    setMinFunctionAlignment(4);
 
     setInsertFencesForAtomic(true);
 
@@ -509,7 +511,6 @@ const {
     case ISD::SUBE:
     case ISD::SDIVREM:
     case ISD::UDIVREM:
-
     case ISD::AND:
     case ISD::OR:
         llvm_unreachable("coffeeisellowering.cpp::performDAGCombine");
@@ -597,6 +598,9 @@ const char * CoffeeTargetLowering::getTargetNodeName(unsigned Opcode) const {
     case COFFEEISD::FPCMP:        return "COFFEEISD::FPCMP";
     case COFFEEISD::Hi:         return "COFFEEISD::Hi";
     case COFFEEISD::Lo:         return "COFFEEISD::Lo";
+    case COFFEEISD::EXB:        return "COFFEEISD::EXB";
+    case COFFEEISD::EXH:        return "COFFEEISD::EXH";
+    case COFFEEISD::EXBF:        return "COFFEEISD::EXBF";
     }
 }
 
@@ -972,6 +976,9 @@ SDValue CoffeeTargetLowering::LowerOperation(SDValue Op, SelectionDAG &DAG) cons
     //case ISD::SELECT: return Op; //LowerSELECT(Op, DAG);
     case ISD::SELECT_CC: return LowerSELECT_CC(Op, DAG);
     case ISD::VASTART: return LowerVASTART(Op, DAG);
+    case ISD::STORE: return LowerSTORE(Op, DAG);
+    case ISD::LOAD: return LowerLOAD(Op, DAG);
+
 
     }
 }
@@ -991,6 +998,343 @@ SDValue CoffeeTargetLowering::LowerVASTART(SDValue Op, SelectionDAG &DAG) const 
   return DAG.getStore(Op.getOperand(0), dl, FI, Op.getOperand(1),
                       MachinePointerInfo(SV), false, false, 0);
 }
+
+SDValue CoffeeTargetLowering::LowerLOAD(SDValue Op, SelectionDAG &DAG) const {
+    LoadSDNode* loadNode = cast<LoadSDNode>(Op.getNode());
+    SDValue Chain = Op.getOperand(0);
+    MachineMemOperand *MMO = loadNode->getMemOperand();
+    DebugLoc dl = Op.getDebugLoc();
+
+    // get load result type
+    EVT VT = loadNode->getMemoryVT();
+    // we handle only extended load operation, meaning that memory VT is smaller than register size which is MVT::i32
+    if (VT.getSimpleVT() != MVT::i8 && VT.getSimpleVT() != MVT::i16) {
+        return SDValue();
+    }
+
+    // the second operand is address
+    SDValue Addr = loadNode->getOperand(1);
+
+
+    // Addresses of the form FI+const or FI|const
+    if (DAG.isBaseWithConstantOffset(Addr)) {
+        SDValue Ptr = Addr.getOperand(0);
+        SDValue Offset = Addr.getOperand(1);
+
+        /*
+          The offset is constant, we can do the precalculation here to make sure
+          the address for LOAD operation is in alignment
+         */
+       ConstantSDNode *CN = dyn_cast<ConstantSDNode>(Offset);
+
+      if (isInt<16>(CN->getSExtValue())) {
+
+          int OffsetValue = CN->getSExtValue();
+          int reminder = OffsetValue%4;
+          int newOffsetValue = OffsetValue - reminder;
+
+          SDValue newOffset = DAG.getConstant(newOffsetValue, MVT::i32);
+
+          EVT vt = EVT(MVT::i32);
+          MachineFunction &MF = DAG.getMachineFunction();
+          MachineMemOperand *MMO_new =
+                  MF.getMachineMemOperand(MMO->getPointerInfo(), MMO->getFlags(),
+                                          vt.getStoreSize(), 4,
+                                          MMO->getTBAAInfo());
+
+           SDValue Undef = DAG.getUNDEF(Ptr.getValueType());
+
+           SDValue Ptr_new = DAG.getNode(ISD::ADD, dl,
+                                   MVT::i32, Ptr,
+                                   newOffset);
+
+          SDValue L = DAG.getLoad(ISD::UNINDEXED, ISD::NON_EXTLOAD, MVT::i32, dl, Chain, Ptr_new, Undef, MVT::i32, MMO_new);
+
+          SDNode* newLoad = L.getNode();
+
+
+              SDVTList VTLs = DAG.getVTList(MVT::i32, MVT::Other);
+
+              if (VT.getSimpleVT() == MVT::i8) {
+                  // we are using big endian, the lower memory will be in higher register place
+                  // so the selection is 4-reminder
+                  SDValue selection =  DAG.getConstant(3-reminder, MVT::i32);
+                  return DAG.getNode(COFFEEISD::EXB, dl, VTLs, SDValue(newLoad, 1), SDValue(newLoad,0), selection);
+              }
+
+              if (VT.getSimpleVT() == MVT::i16) {
+                  // we are using big endian, the lower memory will be in higher register place
+                  // so the selection is 2-reminder
+                  SDValue selection =  DAG.getConstant(1-reminder, MVT::i32);
+                  return  DAG.getNode(COFFEEISD::EXH, dl, VTLs, SDValue(newLoad, 1), SDValue(newLoad,0), selection);
+              }
+
+
+          return L;
+
+         /* SDValue newOffset = DAG.getConstant(newValue, MVT::i32);
+
+          SDValue Address_new = DAG.getNode(ISD::ADD, dl,
+                                  MVT::i32, Addr.getOpcode(0),
+                                  newOffset);
+
+
+          SDValue Ops[] = { Chain, Address_new, newOffset };
+
+          SDNode *N = new (NodeAllocator) LoadSDNode(Ops, dl, VTs, AM, ExtType,
+                                                     MemVT, MMO);
+
+
+          SDValue A = DAG.getNode(ISD::ADD, getCurDebugLoc(),
+                                  PtrVT, Ptr,
+                                  DAG.getConstant(Offsets[i], PtrVT));
+          SDValue L = DAG.getLoad(ValueVTs[i], getCurDebugLoc(), Root,
+                                  A, MachinePointerInfo(SV, Offsets[i]), isVolatile,
+                                  isNonTemporal, isInvariant, Alignment, TBAAInfo,
+                                  Ranges);*/
+
+
+
+      /*  // If the first operand is a FI, get the TargetFI Node
+        if (FrameIndexSDNode *FIN = dyn_cast<FrameIndexSDNode>
+                                    (Addr.getOperand(0)))
+          Base = CurDAG->getTargetFrameIndex(FIN->getIndex(), ValTy);
+        else
+          Base = Addr.getOperand(0);
+
+        Offset = CurDAG->getTargetConstant(CN->getZExtValue(), ValTy);
+        return true;*/
+      }
+    }
+
+
+    if (Addr.getOpcode() == ISD::ADD) {
+        /*
+          In this case, the offset is loaded from somewhere in runtime, we can NOT do the precalculation here.
+          We have to generate the operation instruction to do the calculation in run timie
+         */
+
+        // we handle the case where two operand of ADD is from LOAD operation
+
+       SDValue Ptr = Addr.getOperand(0);
+
+        SDValue rem = DAG.getNode(ISD::SREM, dl, MVT::i32, Addr, DAG.getConstant(4, MVT::i32));
+        SDValue addr_new = DAG.getNode(ISD::SUB, dl, MVT::i32, Addr, rem);
+        EVT vt = EVT(MVT::i32);
+
+        MachineFunction &MF = DAG.getMachineFunction();
+        MachineMemOperand *MMO_new =
+                MF.getMachineMemOperand(MMO->getPointerInfo(), MMO->getFlags(),
+                                        vt.getStoreSize(), 4,
+                                        MMO->getTBAAInfo());
+
+        SDValue Undef = DAG.getUNDEF(Ptr.getValueType());
+
+        SDValue L = DAG.getLoad(ISD::UNINDEXED, ISD::NON_EXTLOAD, MVT::i32, dl, Chain, addr_new, Undef, MVT::i32, MMO_new);
+        SDNode* newLoad = L.getNode();
+
+        /*
+            register_offset and operand3_exbf is needed by EXBF instruction, for the details of the instruction, please refer to
+            COFFEE core documentation.
+            */
+
+        /*we have big endian hence this trick*/
+        SDValue ptr_offset = DAG.getNode(ISD::SUB, dl, MVT::i32, DAG.getConstant(3, MVT::i32), rem);
+        SDValue register_offset = DAG.getNode(ISD::MUL, dl, MVT::i32, ptr_offset, DAG.getConstant(8, MVT::i32));
+        SDValue operand3_exbf;
+        if (VT.getSimpleVT() == MVT::i8) {
+            operand3_exbf = DAG.getNode(ISD::OR, dl, MVT::i32, register_offset, DAG.getConstant(256, MVT::i32) );
+        }
+
+        if (VT.getSimpleVT() == MVT::i16) {
+            operand3_exbf = DAG.getNode(ISD::OR, dl, MVT::i32, register_offset, DAG.getConstant(512, MVT::i32) );
+        }
+
+        SDVTList VTLs = DAG.getVTList(MVT::i32, MVT::Other);
+
+        return DAG.getNode(COFFEEISD::EXBF, dl, VTLs, SDValue(newLoad, 1), SDValue(newLoad,0), operand3_exbf);
+
+    }
+
+
+}
+
+SDValue CoffeeTargetLowering::LowerSTORE(SDValue Op, SelectionDAG &DAG) const {
+
+ /*   // get the second operand which has the size of storing data
+    StoreSDNode* storeNode = cast<StoreSDNode>(Op.getNode());
+
+    if (storeNode->isTruncatingStore()) {
+        SDValue Chain = Op.getOperand(0);
+        SDValue op1 = Op.getNode()->getOperand(1);
+        EVT VT = op1.getNode()->getValueType(op1.getResNo());
+        MachineMemOperand *MMO = storeNode->getMemOperand();
+        DebugLoc dl = Op.getDebugLoc();
+
+        dbgs()<<"store\n";
+        dbgs()<< MMO->getOffset();
+        dbgs()<<"store1\n";
+        dbgs()<< MMO->getSize();
+        dbgs()<<"store2\n";
+        dbgs()<< MMO->getTBAAInfo();
+        dbgs()<<"store3\n";
+        dbgs()<< MMO->getAlignment();
+        dbgs()<<"store4\n";
+        dbgs()<< MMO->getBaseAlignment();
+
+        SDValue extValue;
+        SDVTList VTLs = DAG.getVTList(MVT::i32, MVT::Other);;
+
+        if (VT.getSimpleVT() == MVT::i8) {
+
+           extValue = DAG.getNode(COFFEEISD::EXB, dl, VTLs, Chain, op1);
+        } else if (VT.getSimpleVT() == MVT::i16) {
+           extValue = DAG.getNode(COFFEEISD::EXH, dl, VTLs, Chain, op1);
+
+        } else {
+            dbgs()<<VT.getEVTString();
+            llvm_unreachable("Unhandled VT in LowerSTORE function");
+        }
+
+        extValue.getNode();
+
+        DebugLoc dl2 = extValue.getNode()->getDebugLoc();
+        SDValue op1_store = SDValue(extValue.getNode(), 1);
+
+
+
+        SDValue Add = DAG.getNode(ISD::ADD, getCurDebugLoc(), PtrVT, Ptr,
+                                  DAG.getConstant(Offsets[i], PtrVT));
+
+            return DAG.getStore(extValue, dl2, op1_store, MMO->getPointerInfo()
+                                               SDValue Ptr, MachinePointerInfo PtrInfo,
+                                               bool isVolatile, bool isNonTemporal,
+                                               unsigned Alignment, const MDNode *TBAAInfo);
+
+
+
+
+            const Value *SrcV = I.getOperand(0);
+            const Value *PtrV = I.getOperand(1);
+
+            SmallVector<EVT, 4> ValueVTs;
+            SmallVector<uint64_t, 4> Offsets;
+            ComputeValueVTs(TLI, SrcV->getType(), ValueVTs, &Offsets);
+            unsigned NumValues = ValueVTs.size();
+            if (NumValues == 0)
+              return;
+
+            // Get the lowered operands. Note that we do this after
+            // checking if NumResults is zero, because with zero results
+            // the operands won't have values in the map.
+            SDValue Src = getValue(SrcV);
+            SDValue Ptr = getValue(PtrV);
+
+            SDValue Root = getRoot();
+            SmallVector<SDValue, 4> Chains(std::min(unsigned(MaxParallelChains),
+                                                    NumValues));
+            EVT PtrVT = Ptr.getValueType();
+            bool isVolatile = I.isVolatile();
+            bool isNonTemporal = I.getMetadata("nontemporal") != 0;
+            unsigned Alignment = I.getAlignment();
+            const MDNode *TBAAInfo = I.getMetadata(LLVMContext::MD_tbaa);
+
+            unsigned ChainI = 0;
+            for (unsigned i = 0; i != NumValues; ++i, ++ChainI) {
+              // See visitLoad comments.
+              if (ChainI == MaxParallelChains) {
+                SDValue Chain = DAG.getNode(ISD::TokenFactor, getCurDebugLoc(),
+                                            MVT::Other, &Chains[0], ChainI);
+                Root = Chain;
+                ChainI = 0;
+              }
+              SDValue Add = DAG.getNode(ISD::ADD, getCurDebugLoc(), PtrVT, Ptr,
+                                        DAG.getConstant(Offsets[i], PtrVT));
+              SDValue St = DAG.getStore(Root, getCurDebugLoc(),
+                                        SDValue(Src.getNode(), Src.getResNo() + i),
+                                        Add, MachinePointerInfo(PtrV, Offsets[i]),
+                                        isVolatile, isNonTemporal, Alignment, TBAAInfo);
+
+
+
+
+
+        SDValue op1 = Op.getNode()->getOperand(1);
+
+
+        EVT VT = op1.getNode()->getValueType(op1.getResNo());
+
+
+        MachineMemOperand *MMO = storeNode->getMemOperand();
+
+        dbgs()<<"store\n";
+        dbgs()<< MMO->getOffset();
+        dbgs()<<"store1\n";
+        dbgs()<< MMO->getSize();
+        dbgs()<<"store2\n";
+        dbgs()<< MMO->getTBAAInfo();
+        dbgs()<<"store3\n";
+        dbgs()<< MMO->getAlignment();
+        dbgs()<<"store4\n";
+        dbgs()<< MMO->getBaseAlignment();
+
+
+
+
+        // unsigned ABIAlignment = DAG.getTargetLoweringInfo().getDataLayout()->getABITypeAlignment()
+
+        unsigned Alignement = MMO->getSize()*4;
+
+        MachineFunction &MF = DAG.getMachineFunction();
+        MachineMemOperand *MMO_new =
+                MF.getMachineMemOperand(MMO->getPointerInfo(), MMO->getFlags(),
+                                        MMO->getSize(), Alignement,
+                                        MMO->getTBAAInfo());
+
+        // storeNode->refineAlignment(MMO);
+
+        dbgs()<<VT.getEVTString();
+
+
+
+        return DAG.getStore( Op.getNode()->getOperand(0),Op.getNode()->getDebugLoc(), Op.getOperand(1), Op.getOperand(2), MMO_new);
+
+    }
+
+
+    return SDValue();
+*/
+
+ /*   if (VT.getSimpleVT() == MVT::i8) {
+
+
+    } else if (VT.getSimpleVT() == MVT::i16) {
+
+
+    } else {
+        dbgs()<<VT.getEVTString();
+        llvm_unreachable("Unhandled VT in LowerSTORE function");
+    }*/
+
+
+ /*TLI.getDataLayout()->getABITypeAlignment(Ty);
+
+ cast<StoreSDNode>(E)->refineAlignment(MMO);
+ return SDValue(E, 0);*/
+
+//    Op.dumpr();
+
+    /* EVT VT =Op.getValueType();
+    SDValue LHS = Op.getOperand(0);
+    SDValue RHS = Op.getOperand(1);
+    SDValue TrueVal = Op.getOperand(2);
+    SDValue FalseVal = Op.getOperand(3);
+    DebugLoc dl = Op.getDebugLoc();*/
+
+
+
+}
+
 
 SDValue CoffeeTargetLowering::
 LowerSELECT_CC(SDValue Op, SelectionDAG &DAG) const {
@@ -1295,7 +1639,9 @@ CoffeeTargetLowering::CoffeeCC::CoffeeCC(CallingConv::ID CallConv, bool IsVarArg
 
     RegSize = 4;
     NumIntArgRegs = array_lengthof(IntRegs);
-    ReservedArgArea = 16;
+    // guoqing: This variable is linked with pseudo callstart and callend instruction
+    // The value will be given to the two instruction as operand
+    ReservedArgArea = 0;
     IntArgRegs = ShadowRegs = IntRegs;
     FixedFn = VarFn = CC_Coffee;
 
@@ -1587,4 +1933,13 @@ CoffeeTargetLowering::writeVarArgRegs(std::vector<SDValue> &OutChains,
     }
 }
 
+
+EVT CoffeeTargetLowering::getOptimalMemOpType(uint64_t Size,
+                                           unsigned DstAlign, unsigned SrcAlign,
+                                           bool IsZeroVal,
+                                           bool MemcpyStrSrc,
+                                           MachineFunction &MF) const {
+  // coffee support only 32 bit load/store
+  return MVT::i32;
+}
 

@@ -84,17 +84,23 @@ bool CoffeeDAGToDAGISel::SelectAddr(SDNode *Parent, SDValue Addr, SDValue &Base,
       if (VT.getSizeInBits() / 8 > LS->getAlignment()) {
         assert(TLI.allowsUnalignedMemoryAccesses(VT) &&
                "Unaligned loads/stores not supported for this type.");
-        if (VT == MVT::f32)
           return false;
       }
     }
 
     // if Address is FI, get the TargetFrameIndex.
+
+
+    /**
+      We only handle the FrameIndex without offset here.
+     */
     if (FrameIndexSDNode *FIN = dyn_cast<FrameIndexSDNode>(Addr)) {
       Base   = CurDAG->getTargetFrameIndex(FIN->getIndex(), ValTy);
       Offset = CurDAG->getTargetConstant(0, ValTy);
       return true;
     }
+
+
 
 
 
@@ -106,8 +112,21 @@ bool CoffeeDAGToDAGISel::SelectAddr(SDNode *Parent, SDValue Addr, SDValue &Base,
 
     // Addresses of the form FI+const or FI|const
     if (CurDAG->isBaseWithConstantOffset(Addr)) {
+
+        /**
+         Guoqing: we only handle the offset value which is a multiple of 4 bytes
+
+         */
+
+
       ConstantSDNode *CN = dyn_cast<ConstantSDNode>(Addr.getOperand(1));
       if (isInt<16>(CN->getSExtValue())) {
+
+          int offset = CN->getSExtValue();
+          if (offset%4) {
+          llvm_unreachable("we only handle offset which is multiple of 4 bytes");
+          return false;
+          }
 
         // If the first operand is a FI, get the TargetFI Node
         if (FrameIndexSDNode *FIN = dyn_cast<FrameIndexSDNode>
@@ -121,41 +140,24 @@ bool CoffeeDAGToDAGISel::SelectAddr(SDNode *Parent, SDValue Addr, SDValue &Base,
       }
     }
 
-    // Operand is a result from an ADD.
-    if (Addr.getOpcode() == ISD::ADD) {
+    if (dyn_cast<ConstantSDNode>(Addr)) {
 
-        //guoqing: no need to do anything here,
-        // it was just a pesudo instr for mips
-        // we don't need it in coffee
+        /**
+          if the address is constant, we don't check
+          */
 
-        //llvm_unreachable("coffee: we need to recheck");
-      // When loading from constant pools, load the lower address part in
-      // the instruction itself. Example, instead of:
-      //  lui $2, %hi($CPI1_0)
-      //  addiu $2, $2, %lo($CPI1_0)
-      //  lwc1 $f0, 0($2)
-      // Generate:
-      //  lui $2, %hi($CPI1_0)
-      //  lwc1 $f0, %lo($CPI1_0)($2)
-     /* if (Addr.getOperand(1).getOpcode() == MipsISD::Lo) {
-        SDValue LoVal = Addr.getOperand(1);
-        if (isa<ConstantPoolSDNode>(LoVal.getOperand(0)) ||
-            isa<GlobalAddressSDNode>(LoVal.getOperand(0))) {
-          Base = Addr.getOperand(0);
-          Offset = LoVal.getOperand(0);
-          return true;
-        }
-      }
-
-      // If an indexed floating point load/store can be emitted, return false.
-      if (LS && (LS->getMemoryVT() == MVT::f32 || LS->getMemoryVT() == MVT::f64) &&
-          Subtarget.hasMips32r2Or64())
-        return false;*/
+        Base   = Addr;
+        Offset = CurDAG->getTargetConstant(0, ValTy);
+        return true;
     }
 
-    Base   = Addr;
-    Offset = CurDAG->getTargetConstant(0, ValTy);
-    return true;
+    // Operand is a result from an SUB.
+    if (Addr.getOpcode() == ISD::SUB) {
+        Base   = Addr;
+        Offset = CurDAG->getTargetConstant(0, ValTy);
+        return true;
+    }
+    return false;
   }
 
 SDNode* CoffeeDAGToDAGISel::Select(SDNode *N) {
