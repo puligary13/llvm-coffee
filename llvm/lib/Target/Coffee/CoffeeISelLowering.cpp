@@ -149,6 +149,8 @@ CoffeeTargetLowering::CoffeeTargetLowering(CoffeeTargetMachine &TM)
     setLoadExtAction(ISD::ZEXTLOAD, MVT::i16,  Custom);
     setLoadExtAction(ISD::SEXTLOAD, MVT::i16,  Custom);
 
+
+
     //setTruncStoreAction(MVT::i32, MVT::i8, Custom);
     //setTruncStoreAction(MVT::i32, MVT::i16, Custom);
 
@@ -187,6 +189,10 @@ CoffeeTargetLowering::CoffeeTargetLowering(CoffeeTargetMachine &TM)
     setOperationAction(ISD::SELECT,    MVT::i32, Expand);
     setOperationAction(ISD::SELECT,    MVT::f32, Expand);
 
+    setCondCodeAction(ISD::SETO, MVT::i32, Expand);
+    setCondCodeAction(ISD::SETO, MVT::f32, Expand);
+
+
     //TODO: is this needed ?
     //setTargetDAGCombine(ISD::SELECT);
 
@@ -222,6 +228,12 @@ CoffeeTargetLowering::CoffeeTargetLowering(CoffeeTargetMachine &TM)
 
     setOperationAction(ISD::VASTART,   MVT::Other, Custom);
 
+    setOperationAction(ISD::ADDE,   MVT::i32, Custom);
+    setOperationAction(ISD::ADDC,   MVT::i32, Custom);
+
+    setOperationAction(ISD::SUBE,   MVT::i32, Custom);
+    setOperationAction(ISD::SUBC,   MVT::i32, Custom);
+
     // *****NOTE*****
     // Don't expand SETCC and then customize SELECT_CC to SETCC&SELECT as
     // expanding SETCC would convert it to SELECT_CC which will cause loop
@@ -255,6 +267,7 @@ CoffeeTargetLowering::CoffeeTargetLowering(CoffeeTargetMachine &TM)
     setOperationAction(ISD::SIGN_EXTEND_INREG, MVT::i16,    Expand);
     setOperationAction(ISD::CTPOP,             MVT::i32,   Expand);
     setOperationAction(ISD::CTTZ,              MVT::i32,   Expand);
+    setOperationAction(ISD::CTLZ,              MVT::i32,   Expand);
     setOperationAction(ISD::CTTZ_ZERO_UNDEF,   MVT::i32,   Expand);
     setOperationAction(ISD::CTLZ_ZERO_UNDEF,   MVT::i32,   Expand);
     setOperationAction(ISD::ROTL,              MVT::i32,   Expand);
@@ -281,6 +294,8 @@ CoffeeTargetLowering::CoffeeTargetLowering(CoffeeTargetMachine &TM)
     setOperationAction(ISD::STACKRESTORE,      MVT::Other, Expand);
     setOperationAction(ISD::ATOMIC_LOAD,       MVT::i32,    Expand);
     setOperationAction(ISD::ATOMIC_STORE,      MVT::i32,    Expand);
+    setOperationAction(ISD::UMUL_LOHI,       MVT::i32,    Expand);
+    setOperationAction(ISD::SMUL_LOHI,      MVT::i32,    Expand);
 
     setOperationAction(ISD::SDIVREM,       MVT::i32,    Expand);
     setOperationAction(ISD::UDIVREM,      MVT::i32,    Expand);
@@ -601,6 +616,10 @@ const char * CoffeeTargetLowering::getTargetNodeName(unsigned Opcode) const {
     case COFFEEISD::EXB:        return "COFFEEISD::EXB";
     case COFFEEISD::EXH:        return "COFFEEISD::EXH";
     case COFFEEISD::EXBF:        return "COFFEEISD::EXBF";
+    case COFFEEISD::AddCarry:    return "COFFEEISD::AddCarry";
+    case COFFEEISD::ADDC:    return "COFFEEISD::ADDC";
+    case COFFEEISD::SubCarry:    return "COFFEEISD::SubCarry";
+    case COFFEEISD::SUBC:    return "COFFEEISD::SUBC";
     }
 }
 
@@ -978,9 +997,65 @@ SDValue CoffeeTargetLowering::LowerOperation(SDValue Op, SelectionDAG &DAG) cons
     case ISD::VASTART: return LowerVASTART(Op, DAG);
     case ISD::STORE: return LowerSTORE(Op, DAG);
     case ISD::LOAD: return LowerLOAD(Op, DAG);
+    case ISD::ADDE: return LowerADDE(Op, DAG);
+    case ISD::ADDC: return LowerADDC(Op, DAG);
+    case ISD::SUBE: return LowerSUBE(Op, DAG);
+    case ISD::SUBC: return LowerSUBC(Op, DAG);
 
 
     }
+}
+
+
+SDValue CoffeeTargetLowering::LowerSUBC(SDValue Op, SelectionDAG &DAG) const {
+  SDValue Op1 = Op.getOperand(0);
+  SDValue Op2 = Op.getOperand(1);
+  DebugLoc dl = Op.getDebugLoc();
+
+  SDVTList VTLs = DAG.getVTList(MVT::i32, MVT::Glue);
+
+  return DAG.getNode(COFFEEISD::SUBC, dl, VTLs, Op1, Op2);
+}
+
+
+SDValue CoffeeTargetLowering::LowerSUBE(SDValue Op, SelectionDAG &DAG) const {
+  SDValue Op1 = Op.getOperand(0);
+  SDValue Op2 = Op.getOperand(1);
+  SDValue glue = Op.getOperand(2);
+  DebugLoc dl = Op.getDebugLoc();
+
+  SDVTList VTLs = DAG.getVTList(MVT::i32, MVT::Glue);
+
+  SDValue Op2_carry = DAG.getNode(COFFEEISD::SubCarry,dl,VTLs, Op2, glue);
+
+
+  return DAG.getNode(ISD::SUB, dl, MVT::i32, Op1, Op2_carry);
+}
+
+
+SDValue CoffeeTargetLowering::LowerADDC(SDValue Op, SelectionDAG &DAG) const {
+  SDValue Op1 = Op.getOperand(0);
+  SDValue Op2 = Op.getOperand(1);
+  DebugLoc dl = Op.getDebugLoc();
+
+  SDVTList VTLs = DAG.getVTList(MVT::i32, MVT::Glue);
+
+  return DAG.getNode(COFFEEISD::ADDC, dl, VTLs, Op1, Op2);
+}
+
+
+SDValue CoffeeTargetLowering::LowerADDE(SDValue Op, SelectionDAG &DAG) const {
+  SDValue Op1 = Op.getOperand(0);
+  SDValue Op2 = Op.getOperand(1);
+  SDValue glue = Op.getOperand(2);
+  DebugLoc dl = Op.getDebugLoc();
+
+  SDVTList VTLs = DAG.getVTList(MVT::i32, MVT::Glue);
+
+  SDValue Op2_carry = DAG.getNode(COFFEEISD::AddCarry,dl,VTLs, Op2, glue);
+
+
+  return DAG.getNode(ISD::ADD, dl, MVT::i32, Op1, Op2_carry);
 }
 
 
@@ -1105,10 +1180,7 @@ SDValue CoffeeTargetLowering::LowerLOAD(SDValue Op, SelectionDAG &DAG) const {
         Offset = CurDAG->getTargetConstant(CN->getZExtValue(), ValTy);
         return true;*/
       }
-    }
-
-
-    if (Addr.getOpcode() == ISD::ADD) {
+    } else if (Addr.getOpcode() == ISD::ADD) {
         /*
           In this case, the offset is loaded from somewhere in runtime, we can NOT do the precalculation here.
           We have to generate the operation instruction to do the calculation in run timie
@@ -1153,6 +1225,46 @@ SDValue CoffeeTargetLowering::LowerLOAD(SDValue Op, SelectionDAG &DAG) const {
         SDVTList VTLs = DAG.getVTList(MVT::i32, MVT::Other);
 
         return DAG.getNode(COFFEEISD::EXBF, dl, VTLs, SDValue(newLoad, 1), SDValue(newLoad,0), operand3_exbf);
+
+    } else {
+
+
+        /*
+         Here we assume the address is ok, we just need to pick up the right byte
+         */
+
+          EVT vt = EVT(MVT::i32);
+          MachineFunction &MF = DAG.getMachineFunction();
+          MachineMemOperand *MMO_new =
+                  MF.getMachineMemOperand(MMO->getPointerInfo(), MMO->getFlags(),
+                                          vt.getStoreSize(), 4,
+                                          MMO->getTBAAInfo());
+
+           SDValue Undef = DAG.getUNDEF(Addr.getValueType());
+
+
+
+          SDValue L = DAG.getLoad(ISD::UNINDEXED, ISD::NON_EXTLOAD, MVT::i32, dl, Chain, Addr, Undef, MVT::i32, MMO_new);
+
+          SDNode* newLoad = L.getNode();
+
+
+              SDVTList VTLs = DAG.getVTList(MVT::i32, MVT::Other);
+
+              if (VT.getSimpleVT() == MVT::i8) {
+                  // pick the least significant byte
+                  SDValue selection =  DAG.getConstant(3, MVT::i32);
+                  return DAG.getNode(COFFEEISD::EXB, dl, VTLs, SDValue(newLoad, 1), SDValue(newLoad,0), selection);
+              }
+
+              if (VT.getSimpleVT() == MVT::i16) {
+                  // pick the least significant half-word
+                  SDValue selection =  DAG.getConstant(1, MVT::i32);
+                  return  DAG.getNode(COFFEEISD::EXH, dl, VTLs, SDValue(newLoad, 1), SDValue(newLoad,0), selection);
+              }
+
+
+          return L;
 
     }
 

@@ -56,7 +56,7 @@ public:
 
     SDNode* SelectCMOVOp(SDNode *N);
 
-    SDNode *SelectBRCONDOp(SDNode *N);
+    SDNode* SelectBRCONDOp(SDNode *N);
 
     SDNode* SelectMULT(SDNode *N, DebugLoc dl);
 
@@ -157,7 +157,9 @@ bool CoffeeDAGToDAGISel::SelectAddr(SDNode *Parent, SDValue Addr, SDValue &Base,
         Offset = CurDAG->getTargetConstant(0, ValTy);
         return true;
     }
-    return false;
+    Base   = Addr;
+    Offset = CurDAG->getTargetConstant(0, ValTy);
+    return true;
   }
 
 SDNode* CoffeeDAGToDAGISel::Select(SDNode *N) {
@@ -174,6 +176,8 @@ SDNode* CoffeeDAGToDAGISel::Select(SDNode *N) {
 
     case COFFEEISD::BRCOND:
         return SelectBRCONDOp(N);
+        //return node;
+
 
     case COFFEEISD::CondMov:
          return SelectCMOVOp(N);
@@ -192,7 +196,7 @@ SDNode* CoffeeDAGToDAGISel::Select(SDNode *N) {
 }
 
 
-SDNode *CoffeeDAGToDAGISel::SelectBRCONDOp(SDNode *N) {
+SDNode* CoffeeDAGToDAGISel::SelectBRCONDOp(SDNode *N) {
 
     SDValue Chain = N->getOperand(0); // Chain
     SDValue N1 = N->getOperand(1); // Destination
@@ -206,6 +210,7 @@ SDNode *CoffeeDAGToDAGISel::SelectBRCONDOp(SDNode *N) {
     DebugLoc dl = N->getDebugLoc();
 
     ISD::CondCode cc = (ISD::CondCode)cast<ConstantSDNode>(N2)->getZExtValue();
+
 
     // The main logic here follows ARM implementation but unlike ARM,
     // Coffee has dedicated branch instructions for each situations while
@@ -247,18 +252,15 @@ SDNode *CoffeeDAGToDAGISel::SelectBRCONDOp(SDNode *N) {
         break;
     }
 
-    SDValue Ops[] = { N3, N1, Chain, InFlag };
+    if (Opc) {
+        SDValue Ops[] = { N3, N1, Chain, InFlag };
+        SDNode *ResNode = CurDAG->getMachineNode(Opc, dl, MVT::Other,
+                                      MVT::Glue, Ops, 4);
+        Chain = SDValue(ResNode, 0);
+            ReplaceUses(SDValue(N, 0),
+                        SDValue(Chain.getNode(), Chain.getResNo()));
+    }
 
-    // TODO: do we need output glue here ?
-    SDNode *ResNode = CurDAG->getMachineNode(Opc, dl, MVT::Other,
-                                             MVT::Glue, Ops, 4);
-
-    /***NOTE**/
-    // Is replaceUses function meant for Chain Node ?
-
-    Chain = SDValue(ResNode, 0);
-    ReplaceUses(SDValue(N, 0),
-                SDValue(Chain.getNode(), Chain.getResNo()));
     return NULL;
 
 }

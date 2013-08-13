@@ -36,6 +36,12 @@ def SDTUnaryOp  : SDTypeProfile<1, 1, []>;                   // for bitconvert.
 
 
 // Node definition
+def SDT_COFFEEAddC         : SDTypeProfile<1, 2, [ SDTCisVT<0, i32>, SDTCisVT<1, i32>, SDTCisVT<2, i32>]>;
+def SDT_COFFEEAddCarry      : SDTypeProfile<1, 1, [ SDTCisVT<0, i32>, SDTCisVT<1, i32> ]>;
+
+def SDT_COFFEESubC         : SDTypeProfile<1, 2, [ SDTCisVT<0, i32>, SDTCisVT<1, i32>, SDTCisVT<2, i32>]>;
+def SDT_COFFEESubCarry      : SDTypeProfile<1, 1, [ SDTCisVT<0, i32>, SDTCisVT<1, i32> ]>;
+
 def SDT_CoffeeJmpLink      : SDTypeProfile<0, 1, [SDTCisVT<0, iPTR>]>;
 def SDT_COFFEECallSeqStart : SDCallSeqStart<[ SDTCisVT<0, i32> ]>;
 def SDT_COFFEECallSeqEnd   : SDCallSeqEnd<[ SDTCisVT<0, i32>, SDTCisVT<1, i32> ]>;
@@ -108,6 +114,11 @@ def COFFEEDynAlloc  : SDNode<"COFFEEISD::DynAlloc", SDT_COFFEEDynAlloc,
 
 
 def COFFEECondMov : SDNode<"COFFEEISD::CondMov", SDT_COFFEECondMov, [SDNPInGlue]>;
+def COFFEEAddCarry : SDNode<"COFFEEISD::AddCarry", SDT_COFFEEAddCarry, [SDNPOptInGlue, SDNPOutGlue]>;
+def COFFEEAddC : SDNode<"COFFEEISD::ADDC", SDT_COFFEEAddC, [SDNPOutGlue]>;
+
+def COFFEESubCarry : SDNode<"COFFEEISD::SubCarry", SDT_COFFEESubCarry, [SDNPOptInGlue, SDNPOutGlue]>;
+def COFFEESubC : SDNode<"COFFEEISD::SUBC", SDT_COFFEESubC, [SDNPOutGlue]>;
 
 
 def immZExt15  : PatLeaf<(imm), [{ return isInt<15>(N->getZExtValue());  }]>;
@@ -651,6 +662,10 @@ let isCall=1, hasDelaySlot=1, Defs = [LR] in {
 // Arithmetic Instruction (imm)
 def ADDiu   : ArithLogicI<0b101000, "addiu", add, uimm15, immZExt15, GPRC>;
 def ADDi    : ArithOverflowI<0b101101, "addi", add, simm15, immSExt15, GPRC>;
+
+def ADDCiu   : ArithLogicI<0b101000, "addiu", COFFEEAddC, uimm15, immZExt15, GPRC>;
+def ADDCi    : ArithOverflowI<0b101101, "addi", COFFEEAddC, simm15, immSExt15, GPRC>;
+
 def ORi     : ArithLogicI<0b101010, "ori", or, uimm15, immZExt15, GPRC>;
 def ANDi    : ArithOverflowI<0b101001, "andi", and, simm15, immSExt15, GPRC>;
 
@@ -664,9 +679,13 @@ def LLiu    : LoadImm<0b111110, "lli", GPRC, uimm16_load>;
 
 // Arithmetic Instruction (reg)
 def ADDu    : ArithLogicR<0b000000, "addu", add, IIAlu, GPRC>;
+def ADDCu    : ArithLogicR<0b000000, "addu", COFFEEAddC, IIAlu, GPRC>;
+
 def SUBu    : ArithLogicR<0b010001, "subu", sub, IIAlu, GPRC>;
+def SUBCu    : ArithLogicR<0b010001, "subu", COFFEESubC, IIAlu, GPRC>;
 def ADD     : ArithOverflowR<0b000001, "add", add, IIAlu, GPRC>;
-def SUB     : ArithOverflowR<0b010000, "sub", sub, IIAlu, GPRC>;
+def ADDC    : ArithOverflowR<0b000001, "add", COFFEEAddC, IIAlu, GPRC>;
+def SUBC     : ArithOverflowR<0b010000, "sub", COFFEESubC, IIAlu, GPRC>;
 
 def AND     : ArithLogicR<0b000010, "and", and, IIAlu, GPRC>;
 def OR      : ArithLogicR<0b001011, "or",  or, IIAlu, GPRC>;
@@ -1126,6 +1145,52 @@ def : Pat<(setone GPRC:$lhs, immSExt17:$rhs),
 
 def : Pat<(setone GPRC:$lhs, GPRC:$rhs),
           (CMPrr GPRC:$lhs, GPRC:$rhs)>;
+
+
+
+
+class AddCarryF<bits<6> op, dag outs, dag ins, string asmstr,
+         list<dag> pattern, InstrItinClass itin>:
+      InstCoffee<outs, ins, asmstr, pattern, itin, FrmR>
+{
+  bits<5> rt;
+  bits<5> rs;
+
+  let Opcode = op;
+
+  let Inst{25} = 0b1; // enable condition
+  let Inst{24-22} = 0b000;  // CR0
+  let Inst{21-19} = 0b000;  // check the carry flag in CR0
+  let Inst{18-10} = 0b000000001; // add 1 if carry flag is on
+  let Inst{9-5} = rs;
+  let Inst{4-0}  = rt;
+}
+
+
+def  AddCarry:  AddCarryF<0b101101, (outs GPRC:$rt), (ins GPRC:$rs), "addi.c\tcr0,\t$rt,\t$rs,\t1", [(set GPRC:$rt, (COFFEEAddCarry GPRC:$rs))], IIAlu>;
+
+
+//===============================================================//
+
+
+class SubCarryF<bits<6> op, dag outs, dag ins, string asmstr,
+         list<dag> pattern, InstrItinClass itin>:
+      InstCoffee<outs, ins, asmstr, pattern, itin, FrmR>
+{
+  bits<5> rt;
+  bits<5> rs;
+
+  let Opcode = op;
+
+  let Inst{25} = 0b1; // enable condition
+  let Inst{24-22} = 0b000;  // CR0
+  let Inst{21-19} = 0b000;  // check the carry flag in CR0
+  let Inst{18-10} = 0b111111111; // add -1 if carry flag is on
+  let Inst{9-5} = rs;
+  let Inst{4-0}  = rt;
+}
+
+def  SubCarry:  SubCarryF<0b101101, (outs GPRC:$rt), (ins GPRC:$rs), "addi.c\tcr0,\t$rt,\t$rs,\t-1", [(set GPRC:$rt, (COFFEESubCarry GPRC:$rs))], IIAlu>;
 
 //===----------------------------------------------------------------------===//
 // Floating Point Support

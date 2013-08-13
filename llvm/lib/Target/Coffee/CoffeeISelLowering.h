@@ -43,7 +43,11 @@ enum NodeType {
     CondMov,
     EXB,
     EXH,
-    EXBF
+    EXBF,
+    AddCarry,
+    ADDC,
+    SubCarry,
+    SUBC
 };
 }
 
@@ -153,6 +157,10 @@ private:
 
     SDValue LowerSTORE(SDValue Op, SelectionDAG &DAG) const;
     SDValue LowerLOAD(SDValue Op, SelectionDAG &DAG) const;
+    SDValue LowerADDE(SDValue Op, SelectionDAG &DAG) const;
+    SDValue LowerADDC(SDValue Op, SelectionDAG &DAG) const;
+    SDValue LowerSUBE(SDValue Op, SelectionDAG &DAG) const;
+    SDValue LowerSUBC(SDValue Op, SelectionDAG &DAG) const;
 
     SDValue LowerConstantPool(SDValue Op, SelectionDAG &DAG) const;
     SDValue LowerBITCAST(SDValue Op, SelectionDAG &DAG) const;
