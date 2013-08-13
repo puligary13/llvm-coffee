@@ -191,6 +191,9 @@ CoffeeTargetLowering::CoffeeTargetLowering(CoffeeTargetMachine &TM)
 
     setCondCodeAction(ISD::SETO, MVT::i32, Expand);
     setCondCodeAction(ISD::SETO, MVT::f32, Expand);
+    setCondCodeAction(ISD::SETUO, MVT::i32, Expand);
+    setCondCodeAction(ISD::SETUO, MVT::f32, Expand);
+
 
 
     //TODO: is this needed ?
