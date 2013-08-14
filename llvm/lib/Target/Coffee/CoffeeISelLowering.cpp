@@ -150,9 +150,8 @@ CoffeeTargetLowering::CoffeeTargetLowering(CoffeeTargetMachine &TM)
     setLoadExtAction(ISD::SEXTLOAD, MVT::i16,  Custom);
 
 
-
-    //setTruncStoreAction(MVT::i32, MVT::i8, Custom);
-    //setTruncStoreAction(MVT::i32, MVT::i16, Custom);
+    setTruncStoreAction(MVT::i32, MVT::i8, Custom);  /* Hardware doesn't support store i8/i16, we need to load the alignment 4 bytes first*/
+    setTruncStoreAction(MVT::i32, MVT::i16, Custom); /* Then replace the wanted byte/halfword and store it again*/
 
     // extload for f32, f64 is not natively supported type
     // setLoadExtAction(ISD::EXTLOAD, MVT::f32, Expand);
@@ -193,7 +192,6 @@ CoffeeTargetLowering::CoffeeTargetLowering(CoffeeTargetMachine &TM)
     setCondCodeAction(ISD::SETO, MVT::f32, Expand);
     setCondCodeAction(ISD::SETUO, MVT::i32, Expand);
     setCondCodeAction(ISD::SETUO, MVT::f32, Expand);
-
 
 
     //TODO: is this needed ?
@@ -1270,13 +1268,203 @@ SDValue CoffeeTargetLowering::LowerLOAD(SDValue Op, SelectionDAG &DAG) const {
           return L;
 
     }
-
-
 }
 
 SDValue CoffeeTargetLowering::LowerSTORE(SDValue Op, SelectionDAG &DAG) const {
 
- /*   // get the second operand which has the size of storing data
+
+    StoreSDNode* storeNode = cast<StoreSDNode>(Op.getNode());
+
+    if (storeNode->isTruncatingStore()) {
+
+        SDValue Chain = Op.getOperand(0);
+        SDValue Value = storeNode->getOperand(1);
+        SDValue Addr = storeNode->getOperand(2);
+        EVT VT = storeNode->getMemoryVT();
+        MachineMemOperand *MMO = storeNode->getMemOperand();
+        DebugLoc dl = Op.getDebugLoc();
+
+
+        // we handle only extended load operation, meaning that memory VT is smaller than register size which is MVT::i32
+        if (VT.getSimpleVT() != MVT::i8 && VT.getSimpleVT() != MVT::i16) {
+            return SDValue();
+        }
+
+        // Addresses of the form FI+const or FI|const
+        if (DAG.isBaseWithConstantOffset(Addr)) {
+            SDValue Ptr = Addr.getOperand(0);
+            SDValue Offset = Addr.getOperand(1);
+
+            /*
+          The offset is constant, we can do the precalculation here to make sure
+          the address for LOAD operation is in alignment
+         */
+            ConstantSDNode *CN = dyn_cast<ConstantSDNode>(Offset);
+
+            if (isInt<16>(CN->getSExtValue())) {
+
+                int OffsetValue = CN->getSExtValue();
+                int reminder = OffsetValue%4;
+                int newOffsetValue = OffsetValue - reminder;
+
+                SDValue newOffset = DAG.getConstant(newOffsetValue, MVT::i32);
+
+                EVT vt = EVT(MVT::i32);
+                MachineFunction &MF = DAG.getMachineFunction();
+                MachineMemOperand *MMO_new =
+                        MF.getMachineMemOperand(MMO->getPointerInfo(), MachineMemOperand::MOLoad,
+                                                vt.getStoreSize(), 4,
+                                                MMO->getTBAAInfo());
+
+                SDValue Undef = DAG.getUNDEF(Ptr.getValueType());
+
+                SDValue Ptr_new = DAG.getNode(ISD::ADD, dl,
+                                              MVT::i32, Ptr,
+                                              newOffset);
+
+                SDValue L = DAG.getLoad(ISD::UNINDEXED, ISD::NON_EXTLOAD, MVT::i32, dl, Chain, Ptr_new, Undef, MVT::i32, MMO_new);
+
+                SDNode* newLoad = L.getNode();
+
+                SDValue Chain_new = SDValue(newLoad, 1);
+
+                if (VT.getSimpleVT() == MVT::i8) {
+                    SDValue bytemask = DAG.getConstant(0x000F, MVT::i32); //we need to creat mask according to offset
+                    SDValue shiftbit =  DAG.getConstant(8*(3-reminder), MVT::i32); // the number of bit we need to shift
+
+                    SDValue mask = DAG.getNode(ISD::SHL, dl, MVT::i32, bytemask, shiftbit );
+                    SDValue wordmask = DAG.getConstant(0xFFFF, MVT::i32);
+                    SDValue reverse_mask =  DAG.getNode(ISD::XOR, dl, MVT::i32, wordmask, mask);
+
+                    SDValue masked_value = DAG.getNode(ISD::AND, dl, MVT::i32, L, reverse_mask);
+
+
+                    SDValue shift_value = DAG.getNode(ISD::SHL, dl, MVT::i32, Value ,shiftbit);
+
+                    SDValue combined_value = DAG.getNode(ISD::OR, dl, MVT::i32, masked_value, shift_value);
+
+                    MachineMemOperand *MMO_new2 =
+                            MF.getMachineMemOperand(MMO->getPointerInfo(), MachineMemOperand::MOStore,
+                                                    vt.getStoreSize(), 4,
+                                                    MMO->getTBAAInfo());
+
+                    return DAG.getStore(Chain_new, dl, combined_value, Ptr_new, MMO_new2);
+                }
+
+                if (VT.getSimpleVT() == MVT::i16) {
+                    SDValue halfwordmask = DAG.getConstant(0x00FF, MVT::i32); //we need to creat mask according to offset
+                    SDValue shiftbit =  DAG.getConstant(16*(1-reminder), MVT::i32); // the number of bit we need to shift
+
+                    SDValue mask = DAG.getNode(ISD::SHL, dl, MVT::i32, halfwordmask, shiftbit );
+                    SDValue wordmask = DAG.getConstant(0xFFFF, MVT::i32);
+                    SDValue reverse_mask =  DAG.getNode(ISD::XOR, dl, MVT::i32, wordmask, mask);
+
+                    SDValue masked_value = DAG.getNode(ISD::AND, dl, MVT::i32, L, reverse_mask);
+
+
+                    SDValue shift_value = DAG.getNode(ISD::SHL, dl, MVT::i32, Value ,shiftbit);
+
+                    SDValue combined_value = DAG.getNode(ISD::OR, dl, MVT::i32, masked_value, shift_value);
+
+
+                    MachineMemOperand *MMO_new2 =
+                            MF.getMachineMemOperand(MMO->getPointerInfo(), MachineMemOperand::MOStore,
+                                                    vt.getStoreSize(), 4,
+                                                    MMO->getTBAAInfo());
+
+                    return DAG.getStore(Chain_new, dl, combined_value, Ptr_new, MMO_new2);
+                }
+
+            }
+        } else if (Addr.getOpcode() == ISD::ADD) {
+            /*
+          In this case, the offset is loaded from somewhere in runtime, we can NOT do the precalculation here.
+          We have to generate the operation instruction to do the calculation in run timie
+         */
+            llvm_unreachable("it really happens, we have to implement it");
+
+        } else {
+
+            /*
+         Here we assume the address is ok, we just need to pick up the right byte
+         */
+
+            EVT vt = EVT(MVT::i32);
+            MachineFunction &MF = DAG.getMachineFunction();
+            MachineMemOperand *MMO_new =
+                    MF.getMachineMemOperand(MMO->getPointerInfo(), MachineMemOperand::MOLoad,
+                                            vt.getStoreSize(), 4,
+                                            MMO->getTBAAInfo());
+
+            SDValue Undef = DAG.getUNDEF(Addr.getValueType());
+
+
+
+            SDValue L = DAG.getLoad(ISD::UNINDEXED, ISD::NON_EXTLOAD, MVT::i32, dl, Chain, Addr, Undef, MVT::i32, MMO_new);
+
+            SDNode* newLoad = L.getNode();
+
+            SDValue Chain_new = SDValue(newLoad, 1);
+
+            SDVTList VTLs = DAG.getVTList(MVT::i32, MVT::Other);
+
+            if (VT.getSimpleVT() == MVT::i8) {
+                SDValue bytemask = DAG.getConstant(0x000F, MVT::i32); //we need to creat mask according to offset
+                SDValue shiftbit =  DAG.getConstant(8*3, MVT::i32); // the number of bit we need to shift
+
+                SDValue mask = DAG.getNode(ISD::SHL, dl, MVT::i32, bytemask, shiftbit );
+                SDValue wordmask = DAG.getConstant(0xFFFF, MVT::i32);
+                SDValue reverse_mask =  DAG.getNode(ISD::XOR, dl, MVT::i32, wordmask, mask);
+
+                SDValue masked_value = DAG.getNode(ISD::AND, dl, MVT::i32, L, reverse_mask);
+
+
+                SDValue shift_value = DAG.getNode(ISD::SHL, dl, MVT::i32, Value ,shiftbit);
+
+                SDValue combined_value = DAG.getNode(ISD::OR, dl, MVT::i32, masked_value, shift_value);
+
+                MachineMemOperand *MMO_new2 =
+                        MF.getMachineMemOperand(MMO->getPointerInfo(), MachineMemOperand::MOStore,
+                                                vt.getStoreSize(), 4,
+                                                MMO->getTBAAInfo());
+
+                return DAG.getStore(Chain_new, dl, combined_value, Addr, MMO_new2);
+            }
+
+            if (VT.getSimpleVT() == MVT::i16) {
+                SDValue halfwordmask = DAG.getConstant(0x00FF, MVT::i32); //we need to creat mask according to offset
+                SDValue shiftbit =  DAG.getConstant(16*1, MVT::i32); // the number of bit we need to shift
+
+                SDValue mask = DAG.getNode(ISD::SHL, dl, MVT::i32, halfwordmask, shiftbit );
+                SDValue wordmask = DAG.getConstant(0xFFFF, MVT::i32);
+                SDValue reverse_mask =  DAG.getNode(ISD::XOR, dl, MVT::i32, wordmask, mask);
+
+                SDValue masked_value = DAG.getNode(ISD::AND, dl, MVT::i32, L, reverse_mask);
+
+
+                SDValue shift_value = DAG.getNode(ISD::SHL, dl, MVT::i32, Value ,shiftbit);
+
+                SDValue combined_value = DAG.getNode(ISD::OR, dl, MVT::i32, masked_value, shift_value);
+
+                MachineMemOperand *MMO_new2 =
+                        MF.getMachineMemOperand(MMO->getPointerInfo(), MachineMemOperand::MOStore,
+                                                vt.getStoreSize(), 4,
+                                                MMO->getTBAAInfo());
+
+                return DAG.getStore(Chain_new, dl, combined_value, Addr, MMO_new2);
+
+            }
+
+
+            return L;
+
+        }
+
+
+
+
+
+        /*   // get the second operand which has the size of storing data
     StoreSDNode* storeNode = cast<StoreSDNode>(Op.getNode());
 
     if (storeNode->isTruncatingStore()) {
@@ -1420,7 +1608,7 @@ SDValue CoffeeTargetLowering::LowerSTORE(SDValue Op, SelectionDAG &DAG) const {
     return SDValue();
 */
 
- /*   if (VT.getSimpleVT() == MVT::i8) {
+        /*   if (VT.getSimpleVT() == MVT::i8) {
 
 
     } else if (VT.getSimpleVT() == MVT::i16) {
@@ -1432,21 +1620,21 @@ SDValue CoffeeTargetLowering::LowerSTORE(SDValue Op, SelectionDAG &DAG) const {
     }*/
 
 
- /*TLI.getDataLayout()->getABITypeAlignment(Ty);
+        /*TLI.getDataLayout()->getABITypeAlignment(Ty);
 
  cast<StoreSDNode>(E)->refineAlignment(MMO);
  return SDValue(E, 0);*/
 
-//    Op.dumpr();
+        //    Op.dumpr();
 
-    /* EVT VT =Op.getValueType();
+        /* EVT VT =Op.getValueType();
     SDValue LHS = Op.getOperand(0);
     SDValue RHS = Op.getOperand(1);
     SDValue TrueVal = Op.getOperand(2);
     SDValue FalseVal = Op.getOperand(3);
     DebugLoc dl = Op.getDebugLoc();*/
 
-
+    }
 
 }
 
