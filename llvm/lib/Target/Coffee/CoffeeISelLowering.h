@@ -47,7 +47,8 @@ enum NodeType {
     AddCarry,
     ADDC,
     SubCarry,
-    SUBC
+    SUBC,
+    ConSub
 };
 }
 

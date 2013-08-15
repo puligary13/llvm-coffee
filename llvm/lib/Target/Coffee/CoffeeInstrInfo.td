@@ -62,6 +62,11 @@ def SDT_COFFEEExbf         : SDTypeProfile<1, 2, [SDTCisVT<0, i32>,
 def SDT_COFFEECondMov : SDTypeProfile<1, 2, [SDTCisSameAs<0, 1>,
                                           SDTCisSameAs<1, 2>]>;
 
+
+def SDT_COFFEECondSub : SDTypeProfile<1, 3, [SDTCisVT<0, i32>,
+                                          SDTCisVT<1, i32>, SDTCisVT<2,i32>]>;
+
+
 def SDT_MUL     : SDTypeProfile<1, 2, [SDTCisSameAs<0, 1>]>;
 
 def SDT_MUL_64     : SDTypeProfile<0, 1, []>;
@@ -114,12 +119,13 @@ def COFFEEDynAlloc  : SDNode<"COFFEEISD::DynAlloc", SDT_COFFEEDynAlloc,
 
 
 def COFFEECondMov : SDNode<"COFFEEISD::CondMov", SDT_COFFEECondMov, [SDNPInGlue]>;
-def COFFEEAddCarry : SDNode<"COFFEEISD::AddCarry", SDT_COFFEEAddCarry, [SDNPOptInGlue, SDNPOutGlue]>;
+def COFFEEAddCarry : SDNode<"COFFEEISD::AddCarry", SDT_COFFEEAddCarry, [SDNPInGlue, SDNPOutGlue]>;
 def COFFEEAddC : SDNode<"COFFEEISD::ADDC", SDT_COFFEEAddC, [SDNPOutGlue]>;
 
-def COFFEESubCarry : SDNode<"COFFEEISD::SubCarry", SDT_COFFEESubCarry, [SDNPOptInGlue, SDNPOutGlue]>;
+def COFFEESubCarry : SDNode<"COFFEEISD::SubCarry", SDT_COFFEESubCarry, [SDNPInGlue, SDNPOutGlue]>;
 def COFFEESubC : SDNode<"COFFEEISD::SUBC", SDT_COFFEESubC, [SDNPOutGlue]>;
 
+def COFFEECondSub : SDNode<"COFFEEISD::CondSub", SDT_COFFEECondSub, [SDNPInGlue, SDNPOutGlue]>;
 
 def immZExt15  : PatLeaf<(imm), [{ return isInt<15>(N->getZExtValue());  }]>;
 def immSExt15  : PatLeaf<(imm), [{ return isInt<15>(N->getSExtValue());  }]>;
@@ -685,6 +691,7 @@ def SUBu    : ArithLogicR<0b010001, "subu", sub, IIAlu, GPRC>;
 def SUBCu    : ArithLogicR<0b010001, "subu", COFFEESubC, IIAlu, GPRC>;
 def ADD     : ArithOverflowR<0b000001, "add", add, IIAlu, GPRC>;
 def ADDC    : ArithOverflowR<0b000001, "add", COFFEEAddC, IIAlu, GPRC>;
+def SUB     : ArithOverflowR<0b010000, "sub", sub, IIAlu, GPRC>;
 def SUBC     : ArithOverflowR<0b010000, "sub", COFFEESubC, IIAlu, GPRC>;
 
 def AND     : ArithLogicR<0b000010, "and", and, IIAlu, GPRC>;
@@ -1191,6 +1198,7 @@ class SubCarryF<bits<6> op, dag outs, dag ins, string asmstr,
 }
 
 def  SubCarry:  SubCarryF<0b101101, (outs GPRC:$rt), (ins GPRC:$rs), "addi.c\tcr0,\t$rt,\t$rs,\t-1", [(set GPRC:$rt, (COFFEESubCarry GPRC:$rs))], IIAlu>;
+
 
 //===----------------------------------------------------------------------===//
 // Floating Point Support

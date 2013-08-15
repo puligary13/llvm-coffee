@@ -165,6 +165,10 @@ CoffeeTargetLowering::CoffeeTargetLowering(CoffeeTargetMachine &TM)
     // The use case for COFFEE remains to be seen
     // AddPromotedToType();
 
+    // Operation natively support
+    setOperationAction(ISD::TRUNCATE,      MVT::i8,   Legal);
+    setOperationAction(ISD::TRUNCATE,       MVT::i16,   Legal);
+
     // Operations need customization
 
     setOperationAction(ISD::GlobalAddress,      MVT::i32,   Custom);
@@ -1106,15 +1110,27 @@ SDValue CoffeeTargetLowering::LowerLOAD(SDValue Op, SelectionDAG &DAG) const {
       if (isInt<16>(CN->getSExtValue())) {
 
           int OffsetValue = CN->getSExtValue();
-          int reminder = OffsetValue%4;
-          int newOffsetValue = OffsetValue - reminder;
+
+          int reminder;
+          int newOffsetValue;
+
+          if (OffsetValue > 0) {
+              reminder = OffsetValue%4;
+              newOffsetValue = OffsetValue - reminder;
+          } else {
+              reminder = 4+OffsetValue%4;
+              newOffsetValue = OffsetValue + reminder-4;
+          }
 
           SDValue newOffset = DAG.getConstant(newOffsetValue, MVT::i32);
 
           EVT vt = EVT(MVT::i32);
           MachineFunction &MF = DAG.getMachineFunction();
+
+          MachinePointerInfo pointerInfo_new(MMO->getPointerInfo().V, 0); //create new pointerInfo_new with 0 offset
+
           MachineMemOperand *MMO_new =
-                  MF.getMachineMemOperand(MMO->getPointerInfo(), MMO->getFlags(),
+                  MF.getMachineMemOperand(pointerInfo_new, MMO->getFlags(),
                                           vt.getStoreSize(), 4,
                                           MMO->getTBAAInfo());
 
@@ -1132,16 +1148,18 @@ SDValue CoffeeTargetLowering::LowerLOAD(SDValue Op, SelectionDAG &DAG) const {
               SDVTList VTLs = DAG.getVTList(MVT::i32, MVT::Other);
 
               if (VT.getSimpleVT() == MVT::i8) {
-                  // we are using big endian, the lower memory will be in higher register place
-                  // so the selection is 4-reminder
-                  SDValue selection =  DAG.getConstant(3-reminder, MVT::i32);
+                  SDValue selection;
+                  selection =  DAG.getConstant(3-reminder, MVT::i32);
+
                   return DAG.getNode(COFFEEISD::EXB, dl, VTLs, SDValue(newLoad, 1), SDValue(newLoad,0), selection);
               }
 
               if (VT.getSimpleVT() == MVT::i16) {
                   // we are using big endian, the lower memory will be in higher register place
                   // so the selection is 2-reminder
-                  SDValue selection =  DAG.getConstant(1-reminder, MVT::i32);
+                  SDValue selection;
+                      selection =  DAG.getConstant(1-reminder/2, MVT::i32);
+
                   return  DAG.getNode(COFFEEISD::EXH, dl, VTLs, SDValue(newLoad, 1), SDValue(newLoad,0), selection);
               }
 
@@ -1189,15 +1207,16 @@ SDValue CoffeeTargetLowering::LowerLOAD(SDValue Op, SelectionDAG &DAG) const {
 
         // we handle the case where two operand of ADD is from LOAD operation
 
-       SDValue Ptr = Addr.getOperand(0);
+        SDValue Ptr = Addr.getOperand(0);
 
         SDValue rem = DAG.getNode(ISD::SREM, dl, MVT::i32, Addr, DAG.getConstant(4, MVT::i32));
         SDValue addr_new = DAG.getNode(ISD::SUB, dl, MVT::i32, Addr, rem);
         EVT vt = EVT(MVT::i32);
 
         MachineFunction &MF = DAG.getMachineFunction();
+        MachinePointerInfo pointerInfo_new(MMO->getPointerInfo().V, 0);
         MachineMemOperand *MMO_new =
-                MF.getMachineMemOperand(MMO->getPointerInfo(), MMO->getFlags(),
+                MF.getMachineMemOperand(pointerInfo_new, MMO->getFlags(),
                                         vt.getStoreSize(), 4,
                                         MMO->getTBAAInfo());
 
@@ -1211,10 +1230,23 @@ SDValue CoffeeTargetLowering::LowerLOAD(SDValue Op, SelectionDAG &DAG) const {
             COFFEE core documentation.
             */
 
-        /*we have big endian hence this trick*/
-        SDValue ptr_offset = DAG.getNode(ISD::SUB, dl, MVT::i32, DAG.getConstant(3, MVT::i32), rem);
-        SDValue register_offset = DAG.getNode(ISD::MUL, dl, MVT::i32, ptr_offset, DAG.getConstant(8, MVT::i32));
-        SDValue operand3_exbf;
+
+        SDValue ptr_offset;
+        SDValue register_offset;
+        if (VT.getSimpleVT() == MVT::i8) {
+            ptr_offset = DAG.getNode(ISD::SUB, dl, MVT::i32, DAG.getConstant(3, MVT::i32), rem);
+            register_offset = DAG.getNode(ISD::MUL, dl, MVT::i32, ptr_offset, DAG.getConstant(8, MVT::i32));
+
+        }
+
+        if (VT.getSimpleVT() == MVT::i16) {
+            SDValue halfrem = DAG.getNode(ISD::SDIV, dl, MVT::i32, rem, DAG.getConstant(2, MVT::i32));
+            ptr_offset = DAG.getNode(ISD::SUB, dl, MVT::i32, DAG.getConstant(1, MVT::i32), halfrem);
+            register_offset = DAG.getNode(ISD::MUL, dl, MVT::i32, ptr_offset, DAG.getConstant(16, MVT::i32));
+        }
+
+
+         SDValue operand3_exbf;
         if (VT.getSimpleVT() == MVT::i8) {
             operand3_exbf = DAG.getNode(ISD::OR, dl, MVT::i32, register_offset, DAG.getConstant(256, MVT::i32) );
         }
@@ -1236,8 +1268,9 @@ SDValue CoffeeTargetLowering::LowerLOAD(SDValue Op, SelectionDAG &DAG) const {
 
           EVT vt = EVT(MVT::i32);
           MachineFunction &MF = DAG.getMachineFunction();
+          MachinePointerInfo pointerInfo_new(MMO->getPointerInfo().V, 0);
           MachineMemOperand *MMO_new =
-                  MF.getMachineMemOperand(MMO->getPointerInfo(), MMO->getFlags(),
+                  MF.getMachineMemOperand(pointerInfo_new, MMO->getFlags(),
                                           vt.getStoreSize(), 4,
                                           MMO->getTBAAInfo());
 
@@ -1304,15 +1337,25 @@ SDValue CoffeeTargetLowering::LowerSTORE(SDValue Op, SelectionDAG &DAG) const {
             if (isInt<16>(CN->getSExtValue())) {
 
                 int OffsetValue = CN->getSExtValue();
-                int reminder = OffsetValue%4;
-                int newOffsetValue = OffsetValue - reminder;
+
+                int reminder = 0;
+                int newOffsetValue = 0;
+
+                if (OffsetValue > 0) {
+                    reminder = OffsetValue%4;
+                    newOffsetValue = OffsetValue - reminder;
+                } else {
+                    reminder = 4- OffsetValue%4;
+                    newOffsetValue = OffsetValue - reminder -4;
+                }
 
                 SDValue newOffset = DAG.getConstant(newOffsetValue, MVT::i32);
 
                 EVT vt = EVT(MVT::i32);
                 MachineFunction &MF = DAG.getMachineFunction();
+                MachinePointerInfo pointerInfo_new(MMO->getPointerInfo().V, 0);
                 MachineMemOperand *MMO_new =
-                        MF.getMachineMemOperand(MMO->getPointerInfo(), MachineMemOperand::MOLoad,
+                        MF.getMachineMemOperand(pointerInfo_new, MachineMemOperand::MOLoad,
                                                 vt.getStoreSize(), 4,
                                                 MMO->getTBAAInfo());
 
@@ -1343,8 +1386,9 @@ SDValue CoffeeTargetLowering::LowerSTORE(SDValue Op, SelectionDAG &DAG) const {
 
                     SDValue combined_value = DAG.getNode(ISD::OR, dl, MVT::i32, masked_value, shift_value);
 
+                    MachinePointerInfo pointerInfo_new(MMO->getPointerInfo().V, 0);
                     MachineMemOperand *MMO_new2 =
-                            MF.getMachineMemOperand(MMO->getPointerInfo(), MachineMemOperand::MOStore,
+                            MF.getMachineMemOperand(pointerInfo_new, MachineMemOperand::MOStore,
                                                     vt.getStoreSize(), 4,
                                                     MMO->getTBAAInfo());
 
@@ -1353,7 +1397,7 @@ SDValue CoffeeTargetLowering::LowerSTORE(SDValue Op, SelectionDAG &DAG) const {
 
                 if (VT.getSimpleVT() == MVT::i16) {
                     SDValue halfwordmask = DAG.getConstant(0x00FF, MVT::i32); //we need to creat mask according to offset
-                    SDValue shiftbit =  DAG.getConstant(16*(1-reminder), MVT::i32); // the number of bit we need to shift
+                    SDValue shiftbit =  DAG.getConstant(16*(1-reminder/2), MVT::i32); // the number of bit we need to shift
 
                     SDValue mask = DAG.getNode(ISD::SHL, dl, MVT::i32, halfwordmask, shiftbit );
                     SDValue wordmask = DAG.getConstant(0xFFFF, MVT::i32);
@@ -1366,9 +1410,9 @@ SDValue CoffeeTargetLowering::LowerSTORE(SDValue Op, SelectionDAG &DAG) const {
 
                     SDValue combined_value = DAG.getNode(ISD::OR, dl, MVT::i32, masked_value, shift_value);
 
-
+                    MachinePointerInfo pointerInfo_new(MMO->getPointerInfo().V, 0);
                     MachineMemOperand *MMO_new2 =
-                            MF.getMachineMemOperand(MMO->getPointerInfo(), MachineMemOperand::MOStore,
+                            MF.getMachineMemOperand(pointerInfo_new, MachineMemOperand::MOStore,
                                                     vt.getStoreSize(), 4,
                                                     MMO->getTBAAInfo());
 
@@ -1377,11 +1421,83 @@ SDValue CoffeeTargetLowering::LowerSTORE(SDValue Op, SelectionDAG &DAG) const {
 
             }
         } else if (Addr.getOpcode() == ISD::ADD) {
-            /*
-          In this case, the offset is loaded from somewhere in runtime, we can NOT do the precalculation here.
-          We have to generate the operation instruction to do the calculation in run timie
-         */
-            llvm_unreachable("it really happens, we have to implement it");
+
+            SDValue Ptr = Addr.getOperand(0);
+
+            SDValue rem = DAG.getNode(ISD::SREM, dl, MVT::i32, Addr, DAG.getConstant(4, MVT::i32));
+            SDValue addr_new = DAG.getNode(ISD::SUB, dl, MVT::i32, Addr, rem);
+            EVT vt = EVT(MVT::i32);
+
+            MachineFunction &MF = DAG.getMachineFunction();
+            MachinePointerInfo pointerInfo_new(MMO->getPointerInfo().V, 0);
+            MachineMemOperand *MMO_new =
+                    MF.getMachineMemOperand(pointerInfo_new, MachineMemOperand::MOLoad,
+                                            vt.getStoreSize(), 4,
+                                            MMO->getTBAAInfo());
+
+            SDValue Undef = DAG.getUNDEF(Ptr.getValueType());
+
+            SDValue L = DAG.getLoad(ISD::UNINDEXED, ISD::NON_EXTLOAD, MVT::i32, dl, Chain, addr_new, Undef, MVT::i32, MMO_new);
+            SDNode* newLoad = L.getNode();
+
+
+            SDValue Chain_new = SDValue(newLoad, 1);
+
+
+            if (VT.getSimpleVT() == MVT::i8) {
+                SDValue bytemask = DAG.getConstant(0x000F, MVT::i32); //we need to creat mask according to offset
+
+                SDValue ptr_offset = DAG.getNode(ISD::SUB, dl, MVT::i32, DAG.getConstant(3, MVT::i32), rem);
+                SDValue shiftbit = DAG.getNode(ISD::MUL, dl, MVT::i32, ptr_offset, DAG.getConstant(8, MVT::i32));
+
+                SDValue mask = DAG.getNode(ISD::SHL, dl, MVT::i32, bytemask, shiftbit );
+                SDValue wordmask = DAG.getConstant(0xFFFF, MVT::i32);
+                SDValue reverse_mask =  DAG.getNode(ISD::XOR, dl, MVT::i32, wordmask, mask);
+
+                SDValue masked_value = DAG.getNode(ISD::AND, dl, MVT::i32, L, reverse_mask);
+
+
+                SDValue shift_value = DAG.getNode(ISD::SHL, dl, MVT::i32, Value ,shiftbit);
+
+                SDValue combined_value = DAG.getNode(ISD::OR, dl, MVT::i32, masked_value, shift_value);
+
+                MachinePointerInfo pointerInfo_new(MMO->getPointerInfo().V, 0);
+                MachineMemOperand *MMO_new2 =
+                        MF.getMachineMemOperand(pointerInfo_new, MachineMemOperand::MOStore,
+                                                vt.getStoreSize(), 4,
+                                                MMO->getTBAAInfo());
+
+                return DAG.getStore(Chain_new, dl, combined_value, addr_new, MMO_new2);
+            }
+
+            if (VT.getSimpleVT() == MVT::i16) {
+                SDValue halfwordmask = DAG.getConstant(0x00FF, MVT::i32); //we need to creat mask according to offset
+
+                SDValue halfrem = DAG.getNode(ISD::SDIV, dl, MVT::i32, rem, DAG.getConstant(2, MVT::i32));
+                SDValue ptr_offset = DAG.getNode(ISD::SUB, dl, MVT::i32, DAG.getConstant(1, MVT::i32), halfrem);
+                SDValue shiftbit = DAG.getNode(ISD::MUL, dl, MVT::i32, ptr_offset, DAG.getConstant(16, MVT::i32));
+
+                SDValue mask = DAG.getNode(ISD::SHL, dl, MVT::i32, halfwordmask, shiftbit );
+                SDValue wordmask = DAG.getConstant(0xFFFF, MVT::i32);
+                SDValue reverse_mask =  DAG.getNode(ISD::XOR, dl, MVT::i32, wordmask, mask);
+
+                SDValue masked_value = DAG.getNode(ISD::AND, dl, MVT::i32, L, reverse_mask);
+
+
+                SDValue shift_value = DAG.getNode(ISD::SHL, dl, MVT::i32, Value ,shiftbit);
+
+                SDValue combined_value = DAG.getNode(ISD::OR, dl, MVT::i32, masked_value, shift_value);
+
+                MachinePointerInfo pointerInfo_new(MMO->getPointerInfo().V, 0);
+                MachineMemOperand *MMO_new2 =
+                        MF.getMachineMemOperand(pointerInfo_new, MachineMemOperand::MOStore,
+                                                vt.getStoreSize(), 4,
+                                                MMO->getTBAAInfo());
+
+                return DAG.getStore(Chain_new, dl, combined_value, addr_new, MMO_new2);
+            }
+
+
 
         } else {
 
@@ -1391,8 +1507,9 @@ SDValue CoffeeTargetLowering::LowerSTORE(SDValue Op, SelectionDAG &DAG) const {
 
             EVT vt = EVT(MVT::i32);
             MachineFunction &MF = DAG.getMachineFunction();
+            MachinePointerInfo pointerInfo_new(MMO->getPointerInfo().V, 0);
             MachineMemOperand *MMO_new =
-                    MF.getMachineMemOperand(MMO->getPointerInfo(), MachineMemOperand::MOLoad,
+                    MF.getMachineMemOperand(pointerInfo_new, MachineMemOperand::MOLoad,
                                             vt.getStoreSize(), 4,
                                             MMO->getTBAAInfo());
 
@@ -1423,8 +1540,9 @@ SDValue CoffeeTargetLowering::LowerSTORE(SDValue Op, SelectionDAG &DAG) const {
 
                 SDValue combined_value = DAG.getNode(ISD::OR, dl, MVT::i32, masked_value, shift_value);
 
+                MachinePointerInfo pointerInfo_new(MMO->getPointerInfo().V, 0);
                 MachineMemOperand *MMO_new2 =
-                        MF.getMachineMemOperand(MMO->getPointerInfo(), MachineMemOperand::MOStore,
+                        MF.getMachineMemOperand(pointerInfo_new, MachineMemOperand::MOStore,
                                                 vt.getStoreSize(), 4,
                                                 MMO->getTBAAInfo());
 
@@ -1446,8 +1564,9 @@ SDValue CoffeeTargetLowering::LowerSTORE(SDValue Op, SelectionDAG &DAG) const {
 
                 SDValue combined_value = DAG.getNode(ISD::OR, dl, MVT::i32, masked_value, shift_value);
 
+                MachinePointerInfo pointerInfo_new(MMO->getPointerInfo().V, 0);
                 MachineMemOperand *MMO_new2 =
-                        MF.getMachineMemOperand(MMO->getPointerInfo(), MachineMemOperand::MOStore,
+                        MF.getMachineMemOperand(pointerInfo_new, MachineMemOperand::MOStore,
                                                 vt.getStoreSize(), 4,
                                                 MMO->getTBAAInfo());
 

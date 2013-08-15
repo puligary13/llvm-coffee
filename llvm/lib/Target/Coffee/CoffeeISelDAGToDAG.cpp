@@ -122,9 +122,14 @@ bool CoffeeDAGToDAGISel::SelectAddr(SDNode *Parent, SDValue Addr, SDValue &Base,
       ConstantSDNode *CN = dyn_cast<ConstantSDNode>(Addr.getOperand(1));
       if (isInt<16>(CN->getSExtValue())) {
 
+
+
           int offset = CN->getSExtValue();
-          if (offset%4) {
-          llvm_unreachable("we only handle offset which is multiple of 4 bytes");
+
+          EVT VT = LS->getMemoryVT();
+
+          if (offset%4 && (VT == MVT::i8 || VT == MVT::i16) ) {
+          llvm_unreachable("we only handle offset which is multiple of 4 bytes for i8 and i16");
           return false;
           }
 
@@ -176,8 +181,6 @@ SDNode* CoffeeDAGToDAGISel::Select(SDNode *N) {
 
     case COFFEEISD::BRCOND:
         return SelectBRCONDOp(N);
-        //return node;
-
 
     case COFFEEISD::CondMov:
          return SelectCMOVOp(N);

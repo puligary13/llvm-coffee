@@ -29,6 +29,36 @@ class CondF2R<bits<6> op, dag outs, dag ins, string asmstr,
   let Inst{4-0}  = rt;
 }
 
+//---------------------------------------------------------------------------------//
+
+
+class CondF3R<bits<6> op, dag outs, dag ins, string asmstr,
+         list<dag> pattern, InstrItinClass itin>:
+      InstCoffee<outs, ins, asmstr, pattern, itin, FrmR>
+{
+  bits<5> rd;
+  bits<5> rt;
+  bits<5> rs;
+  bits<3> creg;
+  bits<3> cond;
+
+  let Opcode = op;
+
+  let Inst{25} = 0b1; // enable condition
+  let Inst{24-22} = creg;
+  let Inst{21-19} = cond;
+  let Inst{14-10} = rs;
+  let Inst{9-5} = rt;
+  let Inst{4-0}  = rd;
+}
+
+class ArithmeticCondF3R<bits<6> op, string cond, string operation, bits<3>condbit>:
+    CondF3R<op, (outs GPRC:$rd), (ins GPRC:$rt, GPRC:$rs, CRRC:$creg), !strconcat(operation,".",cond,"\t$creg,\t$rt,\t$rs"), [], IIAlu> {
+    let cond = condbit;
+    let Constraints = "$rs = $rd";
+}
+
+
 class MovCondF2R<string cond, bits<3>condbit>:
     CondF2R<0b010011, (outs GPRC:$rt), (ins GPRC:$rs, GPRC:$F, CRRC:$creg), !strconcat("mov.",cond,"\t$creg,\t$rt,\t$rs"), [], IIAlu> {
     let cond = condbit;
@@ -57,6 +87,13 @@ def FPCMov_GT  : FPMovCondF2R<"gt", 0b100>;
 def FPCMov_LT  : FPMovCondF2R<"lt", 0b101>;
 def FPCMov_NE  : FPMovCondF2R<"ne", 0b110>;
 
+
+def ConSub_EGT : ArithmeticCondF3R<0b010000, "egt", "sub", 0b001>;
+def ConSub_ELT : ArithmeticCondF3R<0b010000, "elt", "sub", 0b010>;
+def ConSub_EQ  : ArithmeticCondF3R<0b010000, "eq", "sub", 0b011>;
+def ConSub_GT  : ArithmeticCondF3R<0b010000, "gt", "sub", 0b100>;
+def ConSub_LT : ArithmeticCondF3R<0b010000, "lt", "sub", 0b101>;
+def ConSub_NE : ArithmeticCondF3R<0b010000, "ne", "sub", 0b110>;
 
 // integer select patterns
 
