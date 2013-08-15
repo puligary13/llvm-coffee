@@ -1259,6 +1259,22 @@ SDValue CoffeeTargetLowering::LowerLOAD(SDValue Op, SelectionDAG &DAG) const {
 
         return DAG.getNode(COFFEEISD::EXBF, dl, VTLs, SDValue(newLoad, 1), SDValue(newLoad,0), operand3_exbf);
 
+    } else if (Addr.getOpcode() == ISD::FrameIndex && Addr.getValueType() == MVT::i32){
+
+
+
+        EVT vt = EVT(MVT::i32);
+        MachineFunction &MF = DAG.getMachineFunction();
+        MachinePointerInfo pointerInfo_new(MMO->getPointerInfo().V, 0);
+        MachineMemOperand *MMO_new =
+                MF.getMachineMemOperand(pointerInfo_new, MachineMemOperand::MOLoad,
+                                        vt.getStoreSize(), 4,
+                                        MMO->getTBAAInfo());
+
+        SDValue Undef = DAG.getUNDEF(MVT::i32);
+
+        return DAG.getLoad(ISD::UNINDEXED, ISD::NON_EXTLOAD, MVT::i32, dl, Chain, Addr, Undef, MVT::i32, MMO_new);
+
     } else {
 
 
@@ -1498,6 +1514,19 @@ SDValue CoffeeTargetLowering::LowerSTORE(SDValue Op, SelectionDAG &DAG) const {
             }
 
 
+
+        } else if (Addr.getOpcode() == ISD::FrameIndex && Addr.getValueType() == MVT::i32){
+
+
+            EVT vt = EVT(MVT::i32);
+            MachineFunction &MF = DAG.getMachineFunction();
+            MachinePointerInfo pointerInfo_new(MMO->getPointerInfo().V, 0);
+            MachineMemOperand *MMO_new =
+                    MF.getMachineMemOperand(pointerInfo_new, MachineMemOperand::MOStore,
+                                            vt.getStoreSize(), 4,
+                                            MMO->getTBAAInfo());
+
+            return DAG.getStore(Chain, dl, Value, Addr, MMO_new);
 
         } else {
 
