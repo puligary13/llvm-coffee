@@ -71,7 +71,7 @@ CoffeeRegisterInfo::getCallPreservedMask(CallingConv::ID) const {
 
 BitVector CoffeeRegisterInfo::getReservedRegs(const MachineFunction &MF) const {
     static const uint16_t ReservedCPURegs[] = {
-      Coffee::SP
+      Coffee::SP, Coffee::SPSR, Coffee::PSR
     };
 
     static const uint16_t ReservedCCRegs[] = {
