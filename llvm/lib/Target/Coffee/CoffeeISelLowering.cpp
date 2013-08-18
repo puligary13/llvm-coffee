@@ -1111,7 +1111,6 @@ SDValue CoffeeTargetLowering::LowerLOAD(SDValue Op, SelectionDAG &DAG) const {
         return DAG.getLoad(ISD::UNINDEXED, ISD::NON_EXTLOAD, MVT::i32, dl, Chain, Addr, Undef, MVT::i32, MMO_new);
 
     } else {
-        SDValue Ptr = Addr.getOperand(0);
 
         SDValue rem = DAG.getNode(ISD::SREM, dl, MVT::i32, Addr, DAG.getConstant(4, MVT::i32));
         SDValue addr_new = DAG.getNode(ISD::SUB, dl, MVT::i32, Addr, rem);
@@ -1124,7 +1123,7 @@ SDValue CoffeeTargetLowering::LowerLOAD(SDValue Op, SelectionDAG &DAG) const {
                                         vt.getStoreSize(), 4,
                                         MMO->getTBAAInfo());
 
-        SDValue Undef = DAG.getUNDEF(Ptr.getValueType());
+        SDValue Undef = DAG.getUNDEF(MVT::i32);
 
         SDValue L = DAG.getLoad(ISD::UNINDEXED, ISD::NON_EXTLOAD, MVT::i32, dl, Chain, addr_new, Undef, MVT::i32, MMO_new);
         SDNode* newLoad = L.getNode();
@@ -1199,7 +1198,7 @@ SDValue CoffeeTargetLowering::LowerSTORE(SDValue Op, SelectionDAG &DAG) const {
 
         } else {
 
-            SDValue Ptr = Addr.getOperand(0);
+
 
             SDValue rem = DAG.getNode(ISD::SREM, dl, MVT::i32, Addr, DAG.getConstant(4, MVT::i32));
             SDValue addr_new = DAG.getNode(ISD::SUB, dl, MVT::i32, Addr, rem);
@@ -1212,7 +1211,7 @@ SDValue CoffeeTargetLowering::LowerSTORE(SDValue Op, SelectionDAG &DAG) const {
                                             vt.getStoreSize(), 4,
                                             MMO->getTBAAInfo());
 
-            SDValue Undef = DAG.getUNDEF(Ptr.getValueType());
+            SDValue Undef = DAG.getUNDEF(MVT::i32);
 
             SDValue L = DAG.getLoad(ISD::UNINDEXED, ISD::NON_EXTLOAD, MVT::i32, dl, Chain, addr_new, Undef, MVT::i32, MMO_new);
             SDNode* newLoad = L.getNode();
