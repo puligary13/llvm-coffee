@@ -865,10 +865,10 @@ def Ld : CoffeeAsmPseudo<(outs GPRC:$rd), (ins GPRC:$rt, simm15:$imm15), "ld\t$r
 //  Arbitrary patterns that map to one or more instructions
 //===----------------------------------------------------------------------===//
 
-def : Pat<(i32 immSExt16:$val),
-          (LLi (LO16 imm:$val))>;
+// Zero extended 16 number use lli , sign extended use lli and lui
 def : Pat<(i32 immZExt16:$val),
           (LLiu (LO16 imm:$val))>;
+
 // big immediates
 def : Pat<(i32 imm:$val),
           (LUri (LLiu (LO16 imm:$val)), (HI16 imm:$val))>;

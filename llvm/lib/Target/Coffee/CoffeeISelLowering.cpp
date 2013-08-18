@@ -1221,13 +1221,13 @@ SDValue CoffeeTargetLowering::LowerSTORE(SDValue Op, SelectionDAG &DAG) const {
 
 
             if (VT.getSimpleVT() == MVT::i8) {
-                SDValue bytemask = DAG.getConstant(0x000F, MVT::i32); //we need to creat mask according to offset
+                SDValue bytemask = DAG.getConstant(0x000000FF, MVT::i32); //we need to creat mask according to offset
 
                 SDValue ptr_offset = DAG.getNode(ISD::SUB, dl, MVT::i32, DAG.getConstant(3, MVT::i32), rem);
                 SDValue shiftbit = DAG.getNode(ISD::SHL, dl, MVT::i32, ptr_offset, DAG.getConstant(3, MVT::i32));
 
                 SDValue mask = DAG.getNode(ISD::SHL, dl, MVT::i32, bytemask, shiftbit );
-                SDValue wordmask = DAG.getConstant(0xFFFF, MVT::i32);
+                SDValue wordmask = DAG.getConstant(0xFFFFFFFF, MVT::i32);
                 SDValue reverse_mask =  DAG.getNode(ISD::XOR, dl, MVT::i32, wordmask, mask);
 
                 SDValue masked_value = DAG.getNode(ISD::AND, dl, MVT::i32, L, reverse_mask);
@@ -1247,14 +1247,14 @@ SDValue CoffeeTargetLowering::LowerSTORE(SDValue Op, SelectionDAG &DAG) const {
             }
 
             if (VT.getSimpleVT() == MVT::i16) {
-                SDValue halfwordmask = DAG.getConstant(0x00FF, MVT::i32); //we need to creat mask according to offset
+                SDValue halfwordmask = DAG.getConstant(0x0000FFFF, MVT::i32); //we need to creat mask according to offset
 
                 SDValue halfrem = DAG.getNode(ISD::SDIV, dl, MVT::i32, rem, DAG.getConstant(2, MVT::i32));
                 SDValue ptr_offset = DAG.getNode(ISD::SUB, dl, MVT::i32, DAG.getConstant(1, MVT::i32), halfrem);
                 SDValue shiftbit = DAG.getNode(ISD::MUL, dl, MVT::i32, ptr_offset, DAG.getConstant(16, MVT::i32));
 
                 SDValue mask = DAG.getNode(ISD::SHL, dl, MVT::i32, halfwordmask, shiftbit );
-                SDValue wordmask = DAG.getConstant(0xFFFF, MVT::i32);
+                SDValue wordmask = DAG.getConstant(0xFFFFFFFF, MVT::i32);
                 SDValue reverse_mask =  DAG.getNode(ISD::XOR, dl, MVT::i32, wordmask, mask);
 
                 SDValue masked_value = DAG.getNode(ISD::AND, dl, MVT::i32, L, reverse_mask);
