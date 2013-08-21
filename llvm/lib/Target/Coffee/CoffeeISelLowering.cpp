@@ -1884,3 +1884,18 @@ EVT CoffeeTargetLowering::getOptimalMemOpType(uint64_t Size,
   return MVT::i32;
 }
 
+typedef std::pair<unsigned, const TargetRegisterClass*> RCPair;
+RCPair
+CoffeeTargetLowering::getRegForInlineAsmConstraint(const std::string &Constraint,
+                                                EVT VT) const {
+  if (Constraint.size() == 1) {
+    // GCC ARM Constraint Letters
+    switch (Constraint[0]) {
+    case 'r':
+      return RCPair(0U, &Coffee::GPRCRegClass);
+    }
+  }
+
+
+  return TargetLowering::getRegForInlineAsmConstraint(Constraint, VT);
+}

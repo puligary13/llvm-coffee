@@ -91,6 +91,10 @@ public:
                             bool MemcpyStrSrc,
                             MachineFunction &MF) const;
 
+    std::pair<unsigned, const TargetRegisterClass*>
+      getRegForInlineAsmConstraint(const std::string &Constraint,
+                                   EVT VT) const;
+
 
 private:
 
