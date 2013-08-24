@@ -301,6 +301,8 @@ CoffeeTargetLowering::CoffeeTargetLowering(CoffeeTargetMachine &TM)
     setOperationAction(ISD::ATOMIC_STORE,      MVT::i32,    Expand);
     setOperationAction(ISD::UMUL_LOHI,       MVT::i32,    Expand);
     setOperationAction(ISD::SMUL_LOHI,      MVT::i32,    Expand);
+    setOperationAction(ISD::BSWAP,      MVT::i32,    Expand);
+
 
     setOperationAction(ISD::SDIVREM,       MVT::i32,    Expand);
     setOperationAction(ISD::UDIVREM,      MVT::i32,    Expand);
