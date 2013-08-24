@@ -318,6 +318,9 @@ CoffeeTargetLowering::CoffeeTargetLowering(CoffeeTargetMachine &TM)
     // For the details, please see SelectionDAG.cpp:3521
     // We don't use llvm internal logic to handle memory copy.
     // We will memcpy function
+
+    setStackPointerRegisterToSaveRestore(Coffee::SP);
+
     maxStoresPerMemcpy = maxStoresPerMemcpyOptSize = 0;
 
     setMinFunctionAlignment(4);
