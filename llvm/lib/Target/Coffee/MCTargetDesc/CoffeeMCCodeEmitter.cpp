@@ -163,7 +163,7 @@ EncodeInstruction(const MCInst &MI, raw_ostream &OS,
   // Unfortunately in Coffee both NOP and SLL will come in with Binary == 0
   // so we have to special check for them.
   unsigned Opcode = TmpInst.getOpcode();
-  if ((Opcode != Coffee::NOP) && (Opcode != Coffee::SLL) && !Binary)
+  if ((Opcode != Coffee::ADDu) && !Binary)
     llvm_unreachable("unimplemented opcode in EncodeInstruction()");
 
   const MCInstrDesc &Desc = MCII.get(TmpInst.getOpcode());
