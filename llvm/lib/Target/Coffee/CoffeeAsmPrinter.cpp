@@ -25,7 +25,7 @@
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/Twine.h"
-#include "llvm/Analysis/DebugInfo.h"
+#include "llvm/DebugInfo.h"
 #include "llvm/BasicBlock.h"
 #include "llvm/Instructions.h"
 #include "llvm/CodeGen/MachineFunctionPass.h"
@@ -41,7 +41,6 @@
 #include "llvm/Support/TargetRegistry.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Target/Mangler.h"
-#include "llvm/Target/TargetData.h"
 #include "llvm/Target/TargetLoweringObjectFile.h"
 #include "llvm/Target/TargetOptions.h"
 
