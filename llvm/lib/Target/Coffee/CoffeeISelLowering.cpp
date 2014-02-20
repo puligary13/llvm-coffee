@@ -141,6 +141,8 @@ CoffeeTargetLowering::CoffeeTargetLowering(CoffeeTargetMachine &TM)
     setLoadExtAction(ISD::ZEXTLOAD, MVT::i1,  Promote);
     setLoadExtAction(ISD::SEXTLOAD, MVT::i1,  Promote);
 
+    // define Custom here to make the lowerLoad() called for
+    // extended load.
     setLoadExtAction(ISD::EXTLOAD,  MVT::i8,  Custom); /*This operation will be customized if the address operand is FrameIndex+Offset*/
     setLoadExtAction(ISD::ZEXTLOAD, MVT::i8,  Custom); /*because we don't support unalignment access. This operation will be seperated to*/
     setLoadExtAction(ISD::SEXTLOAD, MVT::i8,  Custom); /*alignment access with exb or exh instruction for i8 and i16 respectively*/
@@ -149,7 +151,19 @@ CoffeeTargetLowering::CoffeeTargetLowering(CoffeeTargetMachine &TM)
     setLoadExtAction(ISD::ZEXTLOAD, MVT::i16,  Custom);
     setLoadExtAction(ISD::SEXTLOAD, MVT::i16,  Custom);
 
+    // coffee support pre-index memory mode for MVT::i32
+    setIndexedLoadAction(ISD::PRE_INC, MVT::i32, Legal);
+    setIndexedLoadAction(ISD::PRE_DEC, MVT::i32, Legal);
 
+    // Customize pre-index memory for MVT::i8
+    setIndexedLoadAction(ISD::PRE_INC, MVT::i8, Custom);
+    setIndexedLoadAction(ISD::PRE_DEC, MVT::i8, Custom);
+
+    setIndexedLoadAction(ISD::PRE_INC, MVT::i16, Custom);
+    setIndexedLoadAction(ISD::PRE_DEC, MVT::i16, Custom);
+
+    // define Custom here to make the lowerStore() called for
+    // truncated store
     setTruncStoreAction(MVT::i32, MVT::i8, Custom);  /* Hardware doesn't support store i8/i16, we need to load the alignment 4 bytes first*/
     setTruncStoreAction(MVT::i32, MVT::i16, Custom); /* Then replace the wanted byte/halfword and store it again*/
 
@@ -1090,21 +1104,97 @@ SDValue CoffeeTargetLowering::LowerLOAD(SDValue Op, SelectionDAG &DAG) const {
 
     // get load result type
     EVT VT = loadNode->getMemoryVT();
+
+    /**
+      The purpose of this function is to convert extended load to the operation which can be found in td file
+    **/
+
+
     // we handle only extended load operation, meaning that memory VT is smaller than register size which is MVT::i32
     if (VT.getSimpleVT() != MVT::i8 && VT.getSimpleVT() != MVT::i16) {
-        return SDValue();
+        llvm_unreachable("lowerLoad:: unsupported extended type");
     }
 
-    // the second operand is address
-    SDValue Addr = loadNode->getOperand(1);
+    if (loadNode->getAddressingMode() != ISD::UNINDEXED)
+        llvm_unreachable("lowerLoad:: unsupported index model");
+
+    SDValue Addr = loadNode->getBasePtr();
+
+    // UNINDEXED load, offset is undef
+    //SDValue offset = loadNode->getOffset();
+
+  if ((Addr.getOpcode() == ISD::ADD || Addr.getOpcode() == ISD::OR)
+               && Addr.getOperand(0).getOpcode() == ISD::FrameIndex
+         && dyn_cast<ConstantSDNode>(Addr.getOperand(1))) {
+
+     SDValue Ptr = Addr.getOperand(0);
+     SDValue Offset = Addr.getOperand(1);
+
+     ConstantSDNode *CN = dyn_cast<ConstantSDNode>(Offset);
+
+     int OffsetValue = CN->getSExtValue();
+     int remainder;
+     int newOffsetValue;
+
+     if (OffsetValue > 0) {
+         remainder = OffsetValue%4;
+         newOffsetValue = OffsetValue - remainder;
+     } else {
+         remainder = 4 + OffsetValue%4;
+         newOffsetValue = OffsetValue + remainder -4;
+     }
 
 
-    if (Addr.getOpcode() == ISD::FrameIndex && Addr.getValueType() == MVT::i32){
+     SDValue newOffset = DAG.getConstant(newOffsetValue, MVT::i32);
+
+     EVT vt = EVT(MVT::i32);
+     MachineFunction &MF = DAG.getMachineFunction();
+
+     MachinePointerInfo pointerInfo_new(MMO->getPointerInfo().V, 0); //create new pointerInfo_new with 0 offset
+
+     MachineMemOperand *MMO_new =
+             MF.getMachineMemOperand(pointerInfo_new, MachineMemOperand::MOLoad,
+                                     vt.getStoreSize(), 4,
+                                     MMO->getTBAAInfo());
+
+     SDValue Undef = DAG.getUNDEF(Ptr.getValueType());
+
+     SDValue Ptr_new = DAG.getNode(ISD::ADD, dl,
+                                   MVT::i32, Ptr,
+                                   newOffset);
+
+     SDValue L = DAG.getLoad(ISD::UNINDEXED, ISD::NON_EXTLOAD, MVT::i32, dl, Chain, Ptr_new, Undef, MVT::i32, MMO_new);
+
+     SDNode* newLoad = L.getNode();
+
+
+     SDVTList VTLs = DAG.getVTList(MVT::i32, MVT::Other);
+
+     if (VT.getSimpleVT() == MVT::i8) {
+         SDValue selection;
+         selection =  DAG.getConstant(3-remainder, MVT::i32);
+
+         return DAG.getNode(COFFEEISD::EXB, dl, VTLs, SDValue(newLoad, 1), SDValue(newLoad,0), selection);
+     }
+
+     if (VT.getSimpleVT() == MVT::i16) {
+         // we are using big endian, the lower memory will be in higher register place
+         // so the selection is 2-reminder
+         SDValue selection;
+         selection =  DAG.getConstant(1-remainder/2, MVT::i32);
+
+         return  DAG.getNode(COFFEEISD::EXH, dl, VTLs, SDValue(newLoad, 1), SDValue(newLoad,0), selection);
+     }
+
+
+    } else if (dyn_cast<FrameIndexSDNode>(loadNode->getOperand(0))) {
 
 
         EVT vt = EVT(MVT::i32);
         MachineFunction &MF = DAG.getMachineFunction();
-        MachinePointerInfo pointerInfo_new(MMO->getPointerInfo().V, 0);
+
+        MachinePointerInfo pointerInfo_new(MMO->getPointerInfo().V, 0); //create new pointerInfo_new with 0 offset
+
         MachineMemOperand *MMO_new =
                 MF.getMachineMemOperand(pointerInfo_new, MachineMemOperand::MOLoad,
                                         vt.getStoreSize(), 4,
@@ -1112,127 +1202,128 @@ SDValue CoffeeTargetLowering::LowerLOAD(SDValue Op, SelectionDAG &DAG) const {
 
         SDValue Undef = DAG.getUNDEF(MVT::i32);
 
-        return DAG.getLoad(ISD::UNINDEXED, ISD::NON_EXTLOAD, MVT::i32, dl, Chain, Addr, Undef, MVT::i32, MMO_new);
+        SDValue L = DAG.getLoad(ISD::UNINDEXED, ISD::NON_EXTLOAD, MVT::i32, dl, Chain, Addr, Undef, MVT::i32, MMO_new);
 
-    } else if ((Addr.getOpcode() == ISD::ADD || Addr.getOpcode() == ISD::OR)
-               && Addr.getOperand(0).getOpcode() == ISD::FrameIndex
-               && dyn_cast<ConstantSDNode>(Addr.getOperand(1))) {
-
-        SDValue Ptr = Addr.getOperand(0);
-        SDValue Offset = Addr.getOperand(1);
-
-        ConstantSDNode *CN = dyn_cast<ConstantSDNode>(Offset);
-
-        if (isInt<16>(CN->getSExtValue())) {
-
-            int OffsetValue = CN->getSExtValue();
-
-            int reminder;
-            int newOffsetValue;
-
-
-            if (OffsetValue > 0) {
-                reminder = OffsetValue%4;
-                newOffsetValue = OffsetValue - reminder;
-            } else {
-                reminder = 4+ OffsetValue%4;
-                newOffsetValue = OffsetValue + reminder -4;
-            }
-
-
-            SDValue newOffset = DAG.getConstant(newOffsetValue, MVT::i32);
-
-            EVT vt = EVT(MVT::i32);
-            MachineFunction &MF = DAG.getMachineFunction();
-
-            MachinePointerInfo pointerInfo_new(MMO->getPointerInfo().V, 0); //create new pointerInfo_new with 0 offset
-
-            MachineMemOperand *MMO_new =
-                    MF.getMachineMemOperand(pointerInfo_new, MachineMemOperand::MOLoad,
-                                            vt.getStoreSize(), 4,
-                                            MMO->getTBAAInfo());
-
-            SDValue Undef = DAG.getUNDEF(Ptr.getValueType());
-
-            SDValue Ptr_new = DAG.getNode(ISD::ADD, dl,
-                                          MVT::i32, Ptr,
-                                          newOffset);
-
-            SDValue L = DAG.getLoad(ISD::UNINDEXED, ISD::NON_EXTLOAD, MVT::i32, dl, Chain, Ptr_new, Undef, MVT::i32, MMO_new);
-
-            SDNode* newLoad = L.getNode();
-
-
-            SDVTList VTLs = DAG.getVTList(MVT::i32, MVT::Other);
-
-            if (VT.getSimpleVT() == MVT::i8) {
-                SDValue selection;
-                selection =  DAG.getConstant(3-reminder, MVT::i32);
-
-                return DAG.getNode(COFFEEISD::EXB, dl, VTLs, SDValue(newLoad, 1), SDValue(newLoad,0), selection);
-            }
-
-            if (VT.getSimpleVT() == MVT::i16) {
-                // we are using big endian, the lower memory will be in higher register place
-                // so the selection is 2-reminder
-                SDValue selection;
-                selection =  DAG.getConstant(1-reminder/2, MVT::i32);
-
-                return  DAG.getNode(COFFEEISD::EXH, dl, VTLs, SDValue(newLoad, 1), SDValue(newLoad,0), selection);
-            }
-        }
-    } else {
-
-        SDValue rem = DAG.getNode(ISD::SREM, dl, MVT::i32, Addr, DAG.getConstant(4, MVT::i32));
-        SDValue addr_new = DAG.getNode(ISD::SUB, dl, MVT::i32, Addr, rem);
-        EVT vt = EVT(MVT::i32);
-
-        MachineFunction &MF = DAG.getMachineFunction();
-        MachinePointerInfo pointerInfo_new(MMO->getPointerInfo().V, 0);
-        MachineMemOperand *MMO_new =
-                MF.getMachineMemOperand(pointerInfo_new, MMO->getFlags(),
-                                        vt.getStoreSize(), 4,
-                                        MMO->getTBAAInfo());
-
-        SDValue Undef = DAG.getUNDEF(MVT::i32);
-
-        SDValue L = DAG.getLoad(ISD::UNINDEXED, ISD::NON_EXTLOAD, MVT::i32, dl, Chain, addr_new, Undef, MVT::i32, MMO_new);
         SDNode* newLoad = L.getNode();
 
-        /*
-            register_offset and operand3_exbf is needed by EXBF instruction, for the details of the instruction, please refer to
-            COFFEE core documentation.
-            */
-
-
-        SDValue ptr_offset;
-        SDValue register_offset;
-        if (VT.getSimpleVT() == MVT::i8) {
-            ptr_offset = DAG.getNode(ISD::SUB, dl, MVT::i32, DAG.getConstant(3, MVT::i32), rem);
-            register_offset = DAG.getNode(ISD::MUL, dl, MVT::i32, ptr_offset, DAG.getConstant(8, MVT::i32));
-
-        }
-
-        if (VT.getSimpleVT() == MVT::i16) {
-            SDValue halfrem = DAG.getNode(ISD::SDIV, dl, MVT::i32, rem, DAG.getConstant(2, MVT::i32));
-            ptr_offset = DAG.getNode(ISD::SUB, dl, MVT::i32, DAG.getConstant(1, MVT::i32), halfrem);
-            register_offset = DAG.getNode(ISD::MUL, dl, MVT::i32, ptr_offset, DAG.getConstant(16, MVT::i32));
-        }
-
-
-        SDValue operand3_exbf;
-        if (VT.getSimpleVT() == MVT::i8) {
-            operand3_exbf = DAG.getNode(ISD::OR, dl, MVT::i32, register_offset, DAG.getConstant(256, MVT::i32) );
-        }
-
-        if (VT.getSimpleVT() == MVT::i16) {
-            operand3_exbf = DAG.getNode(ISD::OR, dl, MVT::i32, register_offset, DAG.getConstant(512, MVT::i32) );
-        }
 
         SDVTList VTLs = DAG.getVTList(MVT::i32, MVT::Other);
 
-        return DAG.getNode(COFFEEISD::EXBF, dl, VTLs, SDValue(newLoad, 1), SDValue(newLoad,0), operand3_exbf);
-    }
+        if (VT.getSimpleVT() == MVT::i8) {
+            SDValue selection;
+            selection =  DAG.getConstant(3, MVT::i32);
+
+            return DAG.getNode(COFFEEISD::EXB, dl, VTLs, SDValue(newLoad, 1), SDValue(newLoad,0), selection);
+        }
+
+        if (VT.getSimpleVT() == MVT::i16) {
+            // we are using big endian, the lower memory will be in higher register place
+            // so the selection is 2-reminder
+            SDValue selection;
+            selection =  DAG.getConstant(1, MVT::i32);
+
+            return  DAG.getNode(COFFEEISD::EXH, dl, VTLs, SDValue(newLoad, 1), SDValue(newLoad,0), selection);
+        }
+
+
+
+  }  else if ((Addr.getOpcode() == ISD::ADD) && dyn_cast<FrameIndexSDNode>(loadNode->getOperand(1))){
+
+     llvm_unreachable("test");
+     SDValue rem = DAG.getNode(ISD::SREM, dl, MVT::i32, Addr, DAG.getConstant(4, MVT::i32));
+     SDValue addr_new = DAG.getNode(ISD::SUB, dl, MVT::i32, Addr, rem);
+     EVT vt = EVT(MVT::i32);
+
+     MachineFunction &MF = DAG.getMachineFunction();
+     MachinePointerInfo pointerInfo_new(MMO->getPointerInfo().V, 0);
+     MachineMemOperand *MMO_new =
+             MF.getMachineMemOperand(pointerInfo_new, MMO->getFlags(),
+                                     vt.getStoreSize(), 4,
+                                     MMO->getTBAAInfo());
+
+     SDValue Undef = DAG.getUNDEF(MVT::i32);
+
+    // SDValue L = DAG.getLoad(ISD::UNINDEXED, ISD::NON_EXTLOAD, MVT::i32, dl, Chain, addr_new, Undef, MVT::i32, MMO_new);
+    return DAG.getLoad(ISD::UNINDEXED, ISD::NON_EXTLOAD, MVT::i32, dl, Chain, addr_new, Undef, MVT::i32, MMO_new);
+
+
+     /*SDNode* newLoad = L.getNode();
+
+
+     SDValue ptr_offset;
+     SDValue register_offset;
+     if (VT.getSimpleVT() == MVT::i8) {
+         ptr_offset = DAG.getNode(ISD::SUB, dl, MVT::i32, DAG.getConstant(3, MVT::i32), rem);
+         register_offset = DAG.getNode(ISD::MUL, dl, MVT::i32, ptr_offset, DAG.getConstant(8, MVT::i32));
+
+     }
+
+     if (VT.getSimpleVT() == MVT::i16) {
+         SDValue halfrem = DAG.getNode(ISD::SDIV, dl, MVT::i32, rem, DAG.getConstant(2, MVT::i32));
+         ptr_offset = DAG.getNode(ISD::SUB, dl, MVT::i32, DAG.getConstant(1, MVT::i32), halfrem);
+         register_offset = DAG.getNode(ISD::MUL, dl, MVT::i32, ptr_offset, DAG.getConstant(16, MVT::i32));
+     }
+
+
+     SDValue operand3_exbf;
+     if (VT.getSimpleVT() == MVT::i8) {
+         operand3_exbf = DAG.getNode(ISD::OR, dl, MVT::i32, register_offset, DAG.getConstant(256, MVT::i32) );
+     }
+
+     if (VT.getSimpleVT() == MVT::i16) {
+         operand3_exbf = DAG.getNode(ISD::OR, dl, MVT::i32, register_offset, DAG.getConstant(512, MVT::i32) );
+     }
+
+     SDVTList VTLs = DAG.getVTList(MVT::i32, MVT::Other);
+
+     return DAG.getNode(COFFEEISD::EXBF, dl, VTLs, SDValue(newLoad, 1), SDValue(newLoad,0), operand3_exbf);*/
+ } else {
+     EVT vt = EVT(MVT::i32);
+     MachineFunction &MF = DAG.getMachineFunction();
+     MachinePointerInfo pointerInfo_new(MMO->getPointerInfo().V, 0);
+     MachineMemOperand *MMO_new =
+             MF.getMachineMemOperand(pointerInfo_new, MachineMemOperand::MOLoad,
+                                     vt.getStoreSize(), 4,
+                                     MMO->getTBAAInfo());
+
+     SDValue Undef = DAG.getUNDEF(MVT::i32);
+
+     // address is unsigned integer, so use ISD::UREM here
+     SDValue rem = DAG.getNode(ISD::UREM, dl, MVT::i32, Addr, DAG.getConstant(4, MVT::i32));
+
+     //SDValue rem = DAG.getConstant(3, MVT::i32);
+
+     SDValue addr_new = DAG.getNode(ISD::SUB, dl, MVT::i32, Addr, rem);
+
+
+     SDValue L = DAG.getLoad(ISD::UNINDEXED, ISD::NON_EXTLOAD, MVT::i32, dl, Chain, addr_new, Undef, MVT::i32, MMO_new);
+
+     SDNode* newLoad = L.getNode();
+
+     //SDValue shift = DAG.getNode(ISD::SUB, dl, MVT::i32, DAG.getConstant(3, MVT::i32), rem);
+     SDValue shift_mul = DAG.getNode(ISD::MUL, dl, MVT::i32, DAG.getConstant(8, MVT::i32), rem);
+
+     SDValue shifted = DAG.getNode(ISD::SHL, dl, MVT::i32, SDValue(newLoad, 0), shift_mul);
+
+     SDVTList VTLs = DAG.getVTList(MVT::i32, MVT::Other);
+
+     //SDNode* newLoad = shifted.getNode();
+
+     if (VT.getSimpleVT() == MVT::i8) {
+
+         SDValue selection = DAG.getConstant(3, MVT::i32);
+         return DAG.getNode(COFFEEISD::EXB, dl, VTLs, SDValue(newLoad,1), shifted, selection);
+     }
+
+     if (VT.getSimpleVT() == MVT::i16) {
+         // we are using big endian, the lower memory will be in higher register place
+         // so the selection is 2-remainder
+         SDValue selection = DAG.getConstant(1, MVT::i32);
+
+         return  DAG.getNode(COFFEEISD::EXH, dl, VTLs, SDValue(newLoad, 1), SDValue(newLoad,0), selection);
+     }
+
+ }
 }
 
 SDValue CoffeeTargetLowering::LowerSTORE(SDValue Op, SelectionDAG &DAG) const {
