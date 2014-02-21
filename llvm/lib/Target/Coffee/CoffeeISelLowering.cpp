@@ -126,7 +126,7 @@ CoffeeTargetLowering::CoffeeTargetLowering(CoffeeTargetMachine &TM)
     : TargetLowering(TM, new TargetLoweringObjectFileELF()) {
 
     // Set up the register classes.
-    setBooleanContents(ZeroOrOneBooleanContent);
+    setBooleanContents(ZeroOrNegativeOneBooleanContent);
 
     // Do we have vector boolean for COFFEE?
     //setBooleanVectorContents(ZeroOrOneBooleanContent); // FIXME: Is this correct?
