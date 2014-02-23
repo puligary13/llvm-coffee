@@ -1346,7 +1346,7 @@ SDValue CoffeeTargetLowering::LowerSTORE(SDValue Op, SelectionDAG &DAG) const {
             return SDValue();
         }
 
-        if (Addr.getOpcode() == ISD::FrameIndex && Addr.getValueType() == MVT::i32) {
+      /*  if (Addr.getOpcode() == ISD::FrameIndex && Addr.getValueType() == MVT::i32) {
 
             EVT vt = EVT(MVT::i32);
             MachineFunction &MF = DAG.getMachineFunction();
@@ -1456,9 +1456,9 @@ SDValue CoffeeTargetLowering::LowerSTORE(SDValue Op, SelectionDAG &DAG) const {
             }
 
 
-        } else {
+        } else {*/
 
-            SDValue rem = DAG.getNode(ISD::SREM, dl, MVT::i32, Addr, DAG.getConstant(4, MVT::i32));
+            SDValue rem = DAG.getNode(ISD::UREM, dl, MVT::i32, Addr, DAG.getConstant(4, MVT::i32));
             SDValue addr_new = DAG.getNode(ISD::SUB, dl, MVT::i32, Addr, rem);
             EVT vt = EVT(MVT::i32);
 
@@ -1532,7 +1532,7 @@ SDValue CoffeeTargetLowering::LowerSTORE(SDValue Op, SelectionDAG &DAG) const {
             }
         }
 
-    }
+    //}
 }
 
 SDValue CoffeeTargetLowering::
