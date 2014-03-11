@@ -1787,6 +1787,12 @@ bool CoffeeTargetLowering::isLegalICmpImmediate(int64_t Imm) const {
     return Imm >= 0 && Imm <= 65535;
 }
 
+bool
+CoffeeTargetLowering::isOffsetFoldingLegal(const GlobalAddressSDNode *GA) const {
+  // The coffee target isn't yet aware of offsets.
+  return false;
+}
+
 
 SDValue
 CoffeeTargetLowering::getCoffeeCmp(SDValue LHS, SDValue RHS,

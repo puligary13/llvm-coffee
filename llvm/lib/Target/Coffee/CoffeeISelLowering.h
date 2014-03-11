@@ -83,6 +83,7 @@ public:
 
     typedef SmallVector<std::pair<unsigned, SDValue>, 8> RegsToPassVector;
     bool isLegalICmpImmediate(int64_t Imm) const;
+    bool isOffsetFoldingLegal(const GlobalAddressSDNode *GA) const;
     virtual SDValue PerformDAGCombine(SDNode *N, DAGCombinerInfo &DCI) const;
 
     EVT getOptimalMemOpType(uint64_t Size,
